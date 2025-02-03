@@ -1,0 +1,44 @@
+{
+    "manifest_version": 3,
+    "name": "OutreachMate 2",
+    "description": "A chrome extension for collecting data to automate email sending to clients OR recruiters.",
+
+    "version": "1.0.0",
+
+    "action": {
+      "default_popup": "index.html"
+    },
+
+    "content_scripts": [
+        {
+          "js": ["src/content.tsx"],
+          "matches": ["http://*/*", "https://*/*", "<all_urls>"],
+          "run_at": "document_idle"
+        }
+    ],
+
+   
+   "icons": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+
+
+    "web_accessible_resources": [
+      {
+        "matches": [
+          "<all_urls>",
+          "http://*/*",
+          "https://*/*"
+        ],
+        "resources": [
+          "assets/content.css"
+        ]
+
+      }
+    ]
+    
+}
+  
