@@ -24,7 +24,7 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // This sets the name pattern for JavaScript and CSS files
+        
         entryFileNames: 'assets/[name].js',  // No hash in filename
         chunkFileNames: 'assets/[name].js',  // No hash in chunk filenames
         assetFileNames: 'assets/[name][extname]',  // No hash in asset filenames (like images or CSS)
@@ -33,4 +33,5 @@ export default defineConfig({
     // Optional: Disable minification if needed (though generally not recommended for production)
     minify: false,
   },
+  publicDir: "public",
 })

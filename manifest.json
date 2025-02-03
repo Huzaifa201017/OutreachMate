@@ -1,6 +1,6 @@
 {
     "manifest_version": 3,
-    "name": "OutreachMate 2",
+    "name": "OutreachMate",
     "description": "A chrome extension for collecting data to automate email sending to clients OR recruiters.",
 
     "version": "1.0.0",
@@ -34,7 +34,7 @@
           "https://*/*"
         ],
         "resources": [
-          "assets/content.css"
+          "tailwind.css"
         ]
 
       }

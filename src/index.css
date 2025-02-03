@@ -1,3 +1,10 @@
+#outreachmate {
+
+  @tailwind base;
+  @tailwind components;
+  @tailwind utilities;
+}
+
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -46,18 +53,4 @@ h1 {
   button {
     background-color: #f9f9f9;
   }
-}
-
-
-bottom-right-btn {
-  background-color: #3b82f6; /* Tailwind's bg-blue-500 */
-  color: white; /* Tailwind's text-white */
-  font-weight: bold; /* Tailwind's font-bold */
-  padding: 0.5rem 1rem; /* Tailwind's py-2 px-4 */
-  border-radius: 0.25rem; /* Tailwind's rounded */
-  transition: background-color 0.2s ease-in-out;
-}
-
-bottom-right-btn:hover {
-  background-color: #1e40af; /* Tailwind's hover:bg-blue-700 */
 }
