@@ -4,6 +4,7 @@ import ContentPage from '@/components/ContentPage'
 
 // Create the root element in the main document
 const root = document.createElement('div')
+root.id = "shadowHost"
 document.body.append(root)
 
 // Create the shadow root for the element
@@ -18,12 +19,10 @@ styleElement.href = chrome.runtime.getURL('tailwind.css');
 // Append the <link> element to the shadow root
 shadowRoot.appendChild(styleElement);
 
-root.style.cssText = 'all:initial'
+// root.style.cssText = 'all:initial;'
 // Render the React component in the shadow DOM
 createRoot(shadowRoot).render(
     <StrictMode>
-        <div id='outreachmate'>
-            <ContentPage />
-        </div>
+        <ContentPage />
     </StrictMode>
 );
