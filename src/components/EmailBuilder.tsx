@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Building2, User, AtSign, Tag, Eye, Edit2, Paperclip, Upload, X } from 'lucide-react';
+import { Send, User, AtSign, Tag, Eye, Edit2, Paperclip, Upload, X } from 'lucide-react';
 
 // Sample preset attachments
 const presetAttachments = [
@@ -242,6 +242,7 @@ export default function EmailBuilder() {
                     <div className="space-y-4">
                         <h3 className="text-lg font-semibold text-gray-900">Recipient Details</h3>
                         <div className="space-y-3">
+
                             <div className="flex items-center space-x-2">
                                 <User className="w-5 h-5 text-gray-400" />
                                 <input
@@ -249,9 +250,10 @@ export default function EmailBuilder() {
                                     placeholder="Recipient Name"
                                     value={recipientData.firstName}
                                     onChange={(e) => handleInputChange('firstName', e.target.value)}
-                                    className="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    className="flex-1 bg-white p-2 border text-base  rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
+
                             <div className="flex items-center space-x-2">
                                 <AtSign className="w-5 h-5 text-gray-400" />
                                 <input
@@ -259,25 +261,16 @@ export default function EmailBuilder() {
                                     placeholder="Email Address"
                                     value={recipientData.email}
                                     onChange={(e) => handleInputChange('email', e.target.value)}
-                                    className="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    className="flex-1 bg-white p-2 border text-base rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
-                            <div className="flex items-center space-x-2">
-                                <Building2 className="w-5 h-5 text-gray-400" />
-                                <input
-                                    type="text"
-                                    placeholder="Company Name"
-                                    value={recipientData.company}
-                                    onChange={(e) => handleInputChange('company', e.target.value)}
-                                    className="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                />
-                            </div>
+
                             <div className="flex items-center space-x-2">
                                 <Tag className="w-5 h-5 text-gray-400" />
                                 <select
                                     value={recipientData.category}
                                     onChange={(e) => handleCategoryChange(e.target.value)}
-                                    className="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    className="flex-1 p-2 bg-white border text-base rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 >
                                     <option value="Lead">Lead</option>
                                     <option value="Recruiter">Recruiter</option>
@@ -285,19 +278,21 @@ export default function EmailBuilder() {
                                     <option value="Business Partner">Business Partner</option>
                                 </select>
                             </div>
+
                         </div>
                     </div>
 
                     {/* Template Selection */}
                     <div className="space-y-4">
                         <h3 className="text-lg font-semibold text-gray-900">Email Template</h3>
+
                         <select
                             value={selectedTemplate?.id}
                             onChange={(e) => {
                                 const template = filteredTemplates.find(t => t.id === parseInt(e.target.value));
                                 if (template) setSelectedTemplate(template);
                             }}
-                            className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full p-2 bg-white text-base border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         >
                             {filteredTemplates.map(template => (
                                 <option key={template.id} value={template.id}>
@@ -310,6 +305,7 @@ export default function EmailBuilder() {
                     {/* Template Variables */}
                     <div className="space-y-4">
                         <h3 className="text-lg font-semibold text-gray-900">Template Variables</h3>
+
                         <div className="space-y-3">
                             {Object.entries(templateVariables).map(([variable, value]) => (
                                 <div key={variable} className="flex items-center space-x-2">
@@ -319,7 +315,7 @@ export default function EmailBuilder() {
                                         value={value}
                                         onChange={(e) => handleVariableChange(variable, e.target.value)}
                                         placeholder={variable}
-                                        className="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        className="flex-1 p-2 border bg-white text-base rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                     />
                                 </div>
                             ))}
@@ -333,7 +329,7 @@ export default function EmailBuilder() {
                             <div className="flex space-x-4">
                                 <button
                                     onClick={() => setAttachmentType('preset')}
-                                    className={`flex-1 py-2 px-4 rounded-md ${attachmentType === 'preset'
+                                    className={`flex-1 py-2 px-4 text-base rounded-md ${attachmentType === 'preset'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         }`}
@@ -343,7 +339,7 @@ export default function EmailBuilder() {
                                 </button>
                                 <button
                                     onClick={() => setAttachmentType('upload')}
-                                    className={`flex-1 py-2 px-4 rounded-md ${attachmentType === 'upload'
+                                    className={`flex-1 py-2 px-4 text-base rounded-md ${attachmentType === 'upload'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         }`}
@@ -450,10 +446,10 @@ export default function EmailBuilder() {
                                     type="text"
                                     value={editedSubject}
                                     onChange={(e) => setEditedSubject(e.target.value)}
-                                    className="w-full p-2 mt-1 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full bg-white text-base p-2 mt-1 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             ) : (
-                                <p className="text-gray-900">{selectedTemplate && processTemplate(editedSubject)}</p>
+                                <p className="text-gray-900 text-base">{selectedTemplate && processTemplate(editedSubject)}</p>
                             )}
                         </div>
                         <div>
@@ -463,10 +459,10 @@ export default function EmailBuilder() {
                                     value={editedContent}
                                     onChange={(e) => setEditedContent(e.target.value)}
                                     rows={10}
-                                    className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    className="w-full p-2 bg-white text-base border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             ) : (
-                                <div className="prose max-w-none">
+                                <div className="prose max-w-none text-base">
                                     {selectedTemplate && processTemplate(editedContent).split('\n').map((line, i) => (
                                         <p key={i} className="mb-4">{line}</p>
                                     ))}
@@ -482,7 +478,7 @@ export default function EmailBuilder() {
                                         <div key={attachment.id} className="flex items-center space-x-2 text-sm text-gray-600">
                                             <Paperclip className="w-4 h-4" />
                                             <span>{attachment.name}</span>
-                                            <span className="text-gray-400">({attachment.size})</span>
+                                            <span className="text-gray-400 ">({attachment.size})</span>
                                         </div>
                                     ))}
                                 </div>

@@ -1,28 +1,28 @@
 import { createRoot } from 'react-dom/client'
 import { StrictMode } from 'react'
 import ContentPage from '@/components/ContentPage'
+import css from './index.css?inline'
 
-// Create the root element in the main document
-const root = document.createElement('div')
-root.id = "shadowHost"
-document.body.append(root)
+const onLoaded = () => {
+    const root = document.createElement('div')
+    document.body.prepend(root)
+    const shadowRoot = root.attachShadow({ mode: 'open' })
 
-// Create the shadow root for the element
-const shadowRoot = root.attachShadow({ mode: 'open' });
+    const renderIn = document.createElement('div')
+    shadowRoot.appendChild(renderIn)
 
-// Create a <link> element to include an external stylesheet
-const styleElement = document.createElement('link');
-styleElement.rel = 'stylesheet';
-styleElement.href = chrome.runtime.getURL('tailwind.css');
+    createRoot(renderIn).render(
+        <StrictMode>
+            <style type="text/css">{css}</style>
+            <ContentPage />
+        </StrictMode>,
+    )
+}
 
-
-// Append the <link> element to the shadow root
-shadowRoot.appendChild(styleElement);
-
-// root.style.cssText = 'all:initial;'
-// Render the React component in the shadow DOM
-createRoot(shadowRoot).render(
-    <StrictMode>
-        <ContentPage />
-    </StrictMode>
-);
+if (document.readyState === 'complete') {
+    onLoaded()
+} else {
+    window.addEventListener('load', () => {
+        onLoaded()
+    })
+}
