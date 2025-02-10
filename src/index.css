@@ -4,6 +4,23 @@
   font-family: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji" !important;
   color: black; 
   font-weight: 400 !important;
+  scrollbar-color: #d1d5db #f3f4f6;  /* thumb and track color */
+  scrollbar-width: thin;
+}
+
+/* For WebKit browsers (Chrome, Safari) */
+:host::-webkit-scrollbar {
+  width: 12px;
+}
+
+:host::-webkit-scrollbar-track {
+  background: #f3f4f6;
+}
+
+:host::-webkit-scrollbar-thumb {
+  background-color: #d1d5db;
+  border-radius: 20px;
+  border: 3px solid #f3f4f6;
 }
 
 @tailwind base;
