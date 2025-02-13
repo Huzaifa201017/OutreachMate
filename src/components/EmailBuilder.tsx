@@ -1,13 +1,47 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, User, AtSign, Tag, Eye, Edit2, Paperclip, Upload, X } from 'lucide-react';
+import {
+    Send,
+    User,
+    AtSign,
+    Tag,
+    Eye,
+    Paperclip,
+    Upload,
+    X,
+} from 'lucide-react';
 
 // Sample preset attachments
 const presetAttachments = [
-    { id: 1, name: 'Company Overview.pdf', size: '2.4 MB', type: 'application/pdf' },
-    { id: 2, name: 'Product Brochure.pdf', size: '3.1 MB', type: 'application/pdf' },
-    { id: 3, name: 'Case Study - Success Story.pdf', size: '1.8 MB', type: 'application/pdf' },
-    { id: 4, name: 'Technical Specifications.pdf', size: '1.2 MB', type: 'application/pdf' },
-    { id: 5, name: 'Price List 2024.pdf', size: '890 KB', type: 'application/pdf' },
+    {
+        id: 1,
+        name: 'Company Overview.pdf',
+        size: '2.4 MB',
+        type: 'application/pdf',
+    },
+    {
+        id: 2,
+        name: 'Product Brochure.pdf',
+        size: '3.1 MB',
+        type: 'application/pdf',
+    },
+    {
+        id: 3,
+        name: 'Case Study - Success Story.pdf',
+        size: '1.8 MB',
+        type: 'application/pdf',
+    },
+    {
+        id: 4,
+        name: 'Technical Specifications.pdf',
+        size: '1.2 MB',
+        type: 'application/pdf',
+    },
+    {
+        id: 5,
+        name: 'Price List 2024.pdf',
+        size: '890 KB',
+        type: 'application/pdf',
+    },
 ];
 
 const emailTemplates = [
@@ -23,7 +57,7 @@ I noticed that {CompanyName} has been making waves in the {Industry} space, and 
 Would you be open to a quick 15-minute chat this week to discuss how we can help {CompanyName} achieve {Goal}?
 
 Best regards,
-{SenderName}`
+{SenderName}`,
     },
     {
         id: 2,
@@ -37,7 +71,7 @@ I wanted to follow up on my previous email about how {ProductName} could benefit
 I'd love to show you a quick demo of how we've helped similar companies achieve {Goal}. Would you have 15 minutes this week for a brief call?
 
 Best regards,
-{SenderName}`
+{SenderName}`,
     },
     {
         id: 3,
@@ -53,7 +87,7 @@ With {Experience} years of experience in {Industry}, I believe I could bring val
 Would you be available for a brief call to discuss how my background aligns with {CompanyName}'s needs?
 
 Best regards,
-{SenderName}`
+{SenderName}`,
     },
     {
         id: 4,
@@ -69,7 +103,7 @@ I've been working in {Industry} for {Experience} years, and I'm particularly imp
 I'd love to discuss how my experience aligns with your team's needs. Would you be available for a brief conversation this week?
 
 Best regards,
-{SenderName}`
+{SenderName}`,
     },
     {
         id: 5,
@@ -85,7 +119,7 @@ We've achieved {Milestone} and are currently raising {Amount} to scale our opera
 Would you be interested in reviewing our pitch deck? I'd be happy to schedule a call to discuss the opportunity in detail.
 
 Best regards,
-{SenderName}`
+{SenderName}`,
     },
     {
         id: 6,
@@ -101,8 +135,8 @@ Our {Product} would complement your {PartnerProduct}, creating a comprehensive s
 Would you be open to a discussion about how we could create mutual value through a strategic partnership?
 
 Best regards,
-{SenderName}`
-    }
+{SenderName}`,
+    },
 ];
 
 interface Attachment {
@@ -113,112 +147,218 @@ interface Attachment {
     file?: File;
 }
 
+interface Variable {
+    name: string;
+    value: string;
+    isEditing: boolean;
+}
+
 export default function EmailBuilder() {
     const [recipientData, setRecipientData] = useState({
         firstName: '',
         email: '',
         company: '',
         industry: '',
-        category: 'Lead'
+        category: 'Lead',
     });
 
-    const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({});
-    const [isEditing, setIsEditing] = useState(false);
+    const [variables, setVariables] = useState<Record<string, Variable>>({});
     const [editedSubject, setEditedSubject] = useState('');
     const [editedContent, setEditedContent] = useState('');
-    const [selectedAttachments, setSelectedAttachments] = useState<Attachment[]>([]);
-    const [attachmentType, setAttachmentType] = useState<'preset' | 'upload'>('preset');
+    const [selectedAttachments, setSelectedAttachments] = useState<Attachment[]>(
+        []
+    );
+    const [attachmentType, setAttachmentType] = useState<'preset' | 'upload'>(
+        'preset'
+    );
+    // const [activeVariable, setActiveVariable] = useState<string | null>(null);
+    // const variableInputRef = useRef<HTMLInputElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
     // Filter templates based on selected category
     const filteredTemplates = emailTemplates.filter(
-        template => template.category === recipientData.category
+        (template) => template.category === recipientData.category
     );
 
     // Set initial template based on category
-    const [selectedTemplate, setSelectedTemplate] = useState(filteredTemplates[0]);
+    const [selectedTemplate, setSelectedTemplate] = useState(
+        filteredTemplates[0]
+    );
 
-    // Extract unique variables from template
+    const adjustHeight = () => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto'; // Reset height
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`; // Set new height
+        }
+    };
+
+    useEffect(() => {
+        if (textareaRef.current) {
+            adjustHeight(); // Adjust height on mount
+        }
+    }, []); // Runs once on mount
+
+    // Extract variables from template and initialize them
     useEffect(() => {
         if (selectedTemplate) {
-            const variables = new Set<string>();
+            const extractedVariables = new Set<string>();
             const regex = /{([^}]+)}/g;
             let match;
 
-            // Extract variables from subject
+            // Extract from subject
             while ((match = regex.exec(selectedTemplate.subject)) !== null) {
-                variables.add(match[1]);
+                extractedVariables.add(match[1]);
             }
 
-            // Reset regex lastIndex
+            // Extract from content
             regex.lastIndex = 0;
-
-            // Extract variables from content
             while ((match = regex.exec(selectedTemplate.content)) !== null) {
-                variables.add(match[1]);
+                extractedVariables.add(match[1]);
             }
 
-            // Initialize template variables
-            const newTemplateVariables: Record<string, string> = {};
-            variables.forEach(variable => {
-                newTemplateVariables[variable] = templateVariables[variable] || '';
+            // Initialize variables state
+            const newVariables: Record<string, Variable> = {};
+            extractedVariables.forEach((name) => {
+                newVariables[name] = {
+                    name,
+                    value: variables[name]?.value || '',
+                    isEditing: false,
+                };
             });
 
-            setTemplateVariables(newTemplateVariables);
+            setVariables(newVariables);
             setEditedSubject(selectedTemplate.subject);
             setEditedContent(selectedTemplate.content);
-            setIsEditing(false);
         }
     }, [selectedTemplate]);
 
-
-    // Update selected template when category changes
     const handleCategoryChange = (category: string) => {
-        setRecipientData(prev => ({ ...prev, category }));
-        const templatesForCategory = emailTemplates.filter(t => t.category === category);
+        setRecipientData((prev) => ({ ...prev, category }));
+        const templatesForCategory = emailTemplates.filter(
+            (t) => t.category === category
+        );
         setSelectedTemplate(templatesForCategory[0]);
     };
 
     const handleInputChange = (field: string, value: string) => {
-        setRecipientData(prev => ({ ...prev, [field]: value }));
+        setRecipientData((prev) => ({ ...prev, [field]: value }));
     };
 
-    const handleVariableChange = (variable: string, value: string) => {
-        setTemplateVariables(prev => ({
-            ...prev,
-            [variable]: value
-        }));
-    };
+    //   const handleVariableClick = (variableName: string) => {
+    //     if (!isEditing) {
+    //       setVariables((prev) => ({
+    //         ...prev,
+    //         [variableName]: {
+    //           ...prev[variableName],
+    //           isEditing: true,
+    //         },
+    //       }));
+    //       setActiveVariable(variableName);
+    //     }
+    //   };
 
-    const processTemplate = (template: string) => {
-        let processed = template;
-        Object.entries(templateVariables).forEach(([key, value]) => {
-            const regex = new RegExp(`{${key}}`, 'g');
-            processed = processed.replace(regex, value || `{${key}}`);
-        });
-        return processed;
-    };
+    //   const handleVariableChange = (variableName: string, value: string) => {
+    //     setVariables((prev) => ({
+    //       ...prev,
+    //       [variableName]: {
+    //         ...prev[variableName],
+    //         value,
+    //       },
+    //     }));
+    //   };
+
+    //   const handleVariableBlur = (variableName: string) => {
+    //     setVariables((prev) => ({
+    //       ...prev,
+    //       [variableName]: {
+    //         ...prev[variableName],
+    //         isEditing: false,
+    //       },
+    //     }));
+    //     setActiveVariable(null);
+    //   };
+
+    //   const renderVariableContent = (text: string) => {
+    //     const regex = /{([^}]+)}/g;
+    //     const parts = [];
+    //     let lastIndex = 0;
+    //     let match;
+
+    //     while ((match = regex.exec(text)) !== null) {
+    //       const [fullMatch, variableName] = match;
+    //       const variable = variables[variableName];
+
+    //       // Add text before the variable
+    //       if (match.index > lastIndex) {
+    //         parts.push(text.substring(lastIndex, match.index));
+    //       }
+
+    //       // Add the variable
+    //       if (variable) {
+    //         if (isEditing) {
+    //           parts.push(fullMatch);
+    //         } else if (variable.isEditing && activeVariable === variableName) {
+    //           parts.push(
+    //             <input
+    //               key={`input-${variableName}`}
+    //               ref={variableInputRef}
+    //               type="text"
+    //               value={variable.value}
+    //               onChange={(e) =>
+    //                 handleVariableChange(variableName, e.target.value)
+    //               }
+    //               onBlur={() => handleVariableBlur(variableName)}
+    //               className="inline-block px-2 py-1 border rounded bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+    //               autoFocus
+    //             />
+    //           );
+    //         } else {
+    //           parts.push(
+    //             <span
+    //               key={`var-${variableName}`}
+    //               onClick={() => handleVariableClick(variableName)}
+    //               className="inline-block px-2 py-1 bg-blue-100 rounded cursor-pointer hover:bg-blue-200"
+    //             >
+    //               {variable.value || `{${variableName}}`}
+    //             </span>
+    //           );
+    //         }
+    //       }
+
+    //       lastIndex = match.index + fullMatch.length;
+    //     }
+
+    //     // Add remaining text
+    //     if (lastIndex < text.length) {
+    //       parts.push(text.substring(lastIndex));
+    //     }
+
+    //     return parts;
+    //   };
 
     const handlePresetAttachment = (attachment: Attachment) => {
-        if (selectedAttachments.find(a => a.id === attachment.id)) {
-            setSelectedAttachments(prev => prev.filter(a => a.id !== attachment.id));
+        if (selectedAttachments.find((a) => a.id === attachment.id)) {
+            setSelectedAttachments((prev) =>
+                prev.filter((a) => a.id !== attachment.id)
+            );
         } else {
-            setSelectedAttachments(prev => [...prev, attachment]);
+            setSelectedAttachments((prev) => [...prev, attachment]);
         }
     };
 
     const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files;
         if (files) {
-            Array.from(files).forEach(file => {
+            Array.from(files).forEach((file) => {
                 const newAttachment: Attachment = {
                     id: Date.now() + Math.random(),
                     name: file.name,
                     size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
                     type: file.type,
-                    file
+                    file,
                 };
-                setSelectedAttachments(prev => [...prev, newAttachment]);
+                setSelectedAttachments((prev) => [...prev, newAttachment]);
             });
         }
         if (fileInputRef.current) {
@@ -227,11 +367,8 @@ export default function EmailBuilder() {
     };
 
     const removeAttachment = (id: number) => {
-        setSelectedAttachments(prev => prev.filter(a => a.id !== id));
+        setSelectedAttachments((prev) => prev.filter((a) => a.id !== id));
     };
-
-
-
 
     return (
         <div className="flex-1 flex overflow-hidden">
@@ -240,20 +377,22 @@ export default function EmailBuilder() {
                 <div className="space-y-6">
                     {/* Recipient Details */}
                     <div className="space-y-4">
-                        <h3 className="text-lg font-semibold text-gray-900">Recipient Details</h3>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                            Recipient Details
+                        </h3>
                         <div className="space-y-3">
-
                             <div className="flex items-center space-x-2">
                                 <User className="w-5 h-5 text-gray-400" />
                                 <input
                                     type="text"
                                     placeholder="Recipient Name"
                                     value={recipientData.firstName}
-                                    onChange={(e) => handleInputChange('firstName', e.target.value)}
-                                    className="flex-1 bg-white p-2 border text-base  rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    onChange={(e) =>
+                                        handleInputChange('firstName', e.target.value)
+                                    }
+                                    className="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
-
                             <div className="flex items-center space-x-2">
                                 <AtSign className="w-5 h-5 text-gray-400" />
                                 <input
@@ -261,16 +400,15 @@ export default function EmailBuilder() {
                                     placeholder="Email Address"
                                     value={recipientData.email}
                                     onChange={(e) => handleInputChange('email', e.target.value)}
-                                    className="flex-1 bg-white p-2 border text-base rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    className="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
-
                             <div className="flex items-center space-x-2">
                                 <Tag className="w-5 h-5 text-gray-400" />
                                 <select
                                     value={recipientData.category}
                                     onChange={(e) => handleCategoryChange(e.target.value)}
-                                    className="flex-1 p-2 bg-white border text-base rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    className="flex-1 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 >
                                     <option value="Lead">Lead</option>
                                     <option value="Recruiter">Recruiter</option>
@@ -278,23 +416,25 @@ export default function EmailBuilder() {
                                     <option value="Business Partner">Business Partner</option>
                                 </select>
                             </div>
-
                         </div>
                     </div>
 
                     {/* Template Selection */}
                     <div className="space-y-4">
-                        <h3 className="text-lg font-semibold text-gray-900">Email Template</h3>
-
+                        <h3 className="text-lg font-semibold text-gray-900">
+                            Email Template
+                        </h3>
                         <select
                             value={selectedTemplate?.id}
                             onChange={(e) => {
-                                const template = filteredTemplates.find(t => t.id === parseInt(e.target.value));
+                                const template = filteredTemplates.find(
+                                    (t) => t.id === parseInt(e.target.value)
+                                );
                                 if (template) setSelectedTemplate(template);
                             }}
-                            className="w-full p-2 bg-white text-base border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         >
-                            {filteredTemplates.map(template => (
+                            {filteredTemplates.map((template) => (
                                 <option key={template.id} value={template.id}>
                                     {template.name}
                                 </option>
@@ -302,34 +442,14 @@ export default function EmailBuilder() {
                         </select>
                     </div>
 
-                    {/* Template Variables */}
-                    <div className="space-y-4">
-                        <h3 className="text-lg font-semibold text-gray-900">Template Variables</h3>
-
-                        <div className="space-y-3">
-                            {Object.entries(templateVariables).map(([variable, value]) => (
-                                <div key={variable} className="flex items-center space-x-2">
-                                    <span className="text-sm font-medium text-gray-500 w-1/3">{variable}:</span>
-                                    <input
-                                        type="text"
-                                        value={value}
-                                        onChange={(e) => handleVariableChange(variable, e.target.value)}
-                                        placeholder={variable}
-                                        className="flex-1 p-2 border bg-white text-base rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Attachments */}
+                    {/* Attachments Section */}
                     <div className="space-y-4">
                         <h3 className="text-lg font-semibold text-gray-900">Attachments</h3>
                         <div className="space-y-4">
                             <div className="flex space-x-4">
                                 <button
                                     onClick={() => setAttachmentType('preset')}
-                                    className={`flex-1 py-2 px-4 text-base rounded-md ${attachmentType === 'preset'
+                                    className={`flex-1 py-2 px-4 rounded-md ${attachmentType === 'preset'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         }`}
@@ -339,7 +459,7 @@ export default function EmailBuilder() {
                                 </button>
                                 <button
                                     onClick={() => setAttachmentType('upload')}
-                                    className={`flex-1 py-2 px-4 text-base rounded-md ${attachmentType === 'upload'
+                                    className={`flex-1 py-2 px-4 rounded-md ${attachmentType === 'upload'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         }`}
@@ -351,10 +471,10 @@ export default function EmailBuilder() {
 
                             {attachmentType === 'preset' ? (
                                 <div className="space-y-2">
-                                    {presetAttachments.map(attachment => (
+                                    {presetAttachments.map((attachment) => (
                                         <div
                                             key={attachment.id}
-                                            className={`flex items-center justify-between p-3 rounded-md border cursor-pointer transition-colors ${selectedAttachments.find(a => a.id === attachment.id)
+                                            className={`flex items-center justify-between p-3 rounded-md border cursor-pointer transition-colors ${selectedAttachments.find((a) => a.id === attachment.id)
                                                 ? 'border-blue-500 bg-blue-50'
                                                 : 'border-gray-200 hover:border-blue-300'
                                                 }`}
@@ -362,9 +482,13 @@ export default function EmailBuilder() {
                                         >
                                             <div className="flex items-center space-x-3">
                                                 <Paperclip className="w-4 h-4 text-gray-400" />
-                                                <span className="text-sm font-medium">{attachment.name}</span>
+                                                <span className="text-sm font-medium">
+                                                    {attachment.name}
+                                                </span>
                                             </div>
-                                            <span className="text-sm text-gray-500">{attachment.size}</span>
+                                            <span className="text-sm text-gray-500">
+                                                {attachment.size}
+                                            </span>
                                         </div>
                                     ))}
                                 </div>
@@ -391,9 +515,11 @@ export default function EmailBuilder() {
 
                             {selectedAttachments.length > 0 && (
                                 <div className="mt-4">
-                                    <h4 className="text-sm font-medium text-gray-700 mb-2">Selected Attachments</h4>
+                                    <h4 className="text-sm font-medium text-gray-700 mb-2">
+                                        Selected Attachments
+                                    </h4>
                                     <div className="space-y-2">
-                                        {selectedAttachments.map(attachment => (
+                                        {selectedAttachments.map((attachment) => (
                                             <div
                                                 key={attachment.id}
                                                 className="flex items-center justify-between p-2 bg-gray-50 rounded-md"
@@ -419,66 +545,58 @@ export default function EmailBuilder() {
             </div>
 
             {/* Right Panel - Preview */}
-            <div className="w-1/2 p-6 bg-gray-50 overflow-y-auto">
+            <div className="w-1/2 p-6 bg-gray-50 overflow-y-scroll">
                 <div className="bg-white rounded-lg shadow p-6 space-y-4">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                             <Eye className="w-5 h-5" /> Preview
                         </h3>
-                        <div className="space-x-2">
-                            <button
-                                onClick={() => setIsEditing(!isEditing)}
-                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                            >
-                                <Edit2 className="w-4 h-4 inline-block mr-1" /> {isEditing ? 'Preview' : 'Edit Email'}
-                            </button>
-                            <button className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">
-                                <Send className="w-4 h-4 inline-block mr-1" /> Send Email
-                            </button>
-                        </div>
+                        <button className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">
+                            <Send className="w-4 h-4 inline-block mr-1" /> Send Email
+                        </button>
                     </div>
 
                     <div className="space-y-4">
                         <div className="border-b pb-4">
                             <h4 className="text-sm font-medium text-gray-500">Subject</h4>
-                            {isEditing ? (
-                                <input
-                                    type="text"
-                                    value={editedSubject}
-                                    onChange={(e) => setEditedSubject(e.target.value)}
-                                    className="w-full bg-white text-base p-2 mt-1 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                />
-                            ) : (
-                                <p className="text-gray-900 text-base">{selectedTemplate && processTemplate(editedSubject)}</p>
-                            )}
+                            <input
+                                type="text"
+                                value={editedSubject}
+                                onChange={(e) => setEditedSubject(e.target.value)}
+                                className="w-full mt-1 bg-transparent border-none outline-none"
+                            />
                         </div>
                         <div>
-                            <h4 className="text-sm font-medium text-gray-500 mb-2">Content</h4>
-                            {isEditing ? (
-                                <textarea
-                                    value={editedContent}
-                                    onChange={(e) => setEditedContent(e.target.value)}
-                                    rows={10}
-                                    className="w-full p-2 bg-white text-base border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                />
-                            ) : (
-                                <div className="prose max-w-none text-base">
-                                    {selectedTemplate && processTemplate(editedContent).split('\n').map((line, i) => (
-                                        <p key={i} className="mb-4">{line}</p>
-                                    ))}
-                                </div>
-                            )}
+                            <h4 className="text-sm font-medium text-gray-500 mb-2">
+                                Content
+                            </h4>
+
+                            <textarea
+                                value={editedContent}
+                                ref={textareaRef}
+                                onChange={(e) => {
+                                    setEditedContent(e.target.value);
+                                    adjustHeight(); // Adjust height dynamically
+                                }}
+                                className="w-full mb-4 bg-transparent border-none outline-none resize-none overflow-hidden leading-relaxed"
+                                style={{ minHeight: '40px', height: 'auto' }} // Ensures it's not collapsed initially
+                            />
                         </div>
 
                         {selectedAttachments.length > 0 && (
                             <div className="border-t pt-4">
-                                <h4 className="text-sm font-medium text-gray-500 mb-2">Attachments</h4>
+                                <h4 className="text-sm font-medium text-gray-500 mb-2">
+                                    Attachments
+                                </h4>
                                 <div className="space-y-2">
-                                    {selectedAttachments.map(attachment => (
-                                        <div key={attachment.id} className="flex items-center space-x-2 text-sm text-gray-600">
+                                    {selectedAttachments.map((attachment) => (
+                                        <div
+                                            key={attachment.id}
+                                            className="flex items-center space-x-2 text-sm text-gray-600"
+                                        >
                                             <Paperclip className="w-4 h-4" />
                                             <span>{attachment.name}</span>
-                                            <span className="text-gray-400 ">({attachment.size})</span>
+                                            <span className="text-gray-400">({attachment.size})</span>
                                         </div>
                                     ))}
                                 </div>
