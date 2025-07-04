@@ -2,17 +2,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+from settings import Settings
 
-DB_HOST = "localhost"
-DB_NAME = "outreachmate"
-DB_USER = "postgres"
-DB_PASSWORD = "jackiechan"
-DB_PORT = 5432
 
-URL_DATABASE = (
-    f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
-engine = create_engine(URL_DATABASE)
+settings = Settings()
+DB_URL = settings.db_url
+engine = create_engine(DB_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

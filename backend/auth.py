@@ -6,19 +6,19 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from sqlalchemy.util import deprecated
 from starlette import status
 
 from database import SessionLocal
 from dependencies import db_dependency
 from models import Users
+from settings import Settings
 
+settings = Settings()
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-SECRET_KEY = "37ea86f4e2f85474c5574344e2d9c44d3ec54534f1994c4dab19e6acc8fb16f0"
-ALGORITHM = "HS256"
+SECRET_KEY = settings.SECRET_KEY
+ALGORITHM = settings.ALGORITHM
 
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_bearer = OAuth2PasswordBearer(tokenUrl="auth/token")
@@ -69,6 +69,28 @@ def create_access_token(username: str, user_id: int, expires_delta: timedelta):
     return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+@router.post("/token", response_model=Token)
+async def login_for_access_token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    db: db_dependency,
+):
+    """
+    Authenticates user credentials and returns a JWT token if valid.
+    """
+    user = authenticate_user(form_data.username, form_data.password, db)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate User",
+        )
+    username = user.username
+    user_id = user.id
+    token = create_access_token(username, user_id, timedelta(minutes=20))
+
+    return {"access_token": token, "token_type": "bearer"}
+
+
 def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):
     """
     Decodes the JWT token and retrieves user details.
@@ -91,25 +113,3 @@ def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate user",
         )
-
-
-@router.post("/token", response_model=Token)
-async def login_for_access_token(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-    db: db_dependency,
-):
-    """
-    Authenticates user credentials and returns a JWT token if valid.
-    """
-    user = authenticate_user(form_data.username, form_data.password, db)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate User",
-        )
-    username = user.username
-    user_id = user.id
-    token = create_access_token(username, user_id, timedelta(minutes=20))
-
-    return {"access_token": token, "token_type": "bearer"}
