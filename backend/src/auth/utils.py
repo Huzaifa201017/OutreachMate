@@ -3,8 +3,9 @@ import logging
 from typing import Optional
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
+from exceptions import InvalidTokenError
 from config import Config
-from jose import ExpiredSignatureError, jwt
+from jose import ExpiredSignatureError, JWTError, jwt
 
 
 config = Config()
@@ -53,10 +54,17 @@ def verify_token(token: str, token_type: str) -> Optional[dict]:
 
         # Verify token type
         if payload.get("token_type") != token_type:
-            return None
+            logger.warning(
+                f"Token type mismatch: expected {token_type}, got {payload.get('token_type')}"
+            )
+            raise InvalidTokenError()
 
         return payload
 
     except ExpiredSignatureError as e:
-        logger.warning(f"Token has expired: {str(e)}")
-        raise ExpiredSignatureError("Token has expired")
+        logger.exception(f"Token has expired")
+        raise InvalidTokenError() from e
+
+    except JWTError as e:
+        logger.exception(f"Token verification failed: {str(e)}")
+        raise InvalidTokenError() from e

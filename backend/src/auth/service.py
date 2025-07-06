@@ -1,10 +1,11 @@
-from datetime import timedelta
-
+import logging
+from sqlalchemy.exc import IntegrityError
 from requests import Session
 
-from .exceptions import (
-    InvalidTokenPayloadError,
-    TokenVerificationError,
+from exceptions import (
+    InvalidCredentialsError,
+    InvalidTokenError,
+    UserAlreadyExistsError,
 )
 from .schemas import LoginResponse, RefreshTokenResponse
 
@@ -14,14 +15,14 @@ from .utils import (
     verify_password,
     verify_token,
 )
-from fastapi import HTTPException
-from starlette import status
 from models import Users
 from config import Config
 
 config = Config()
 SECRET_KEY = config.SECRET_KEY
 ALGORITHM = config.ALGORITHM
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -35,11 +36,17 @@ class AuthService:
         Creates a new user with a hashed password.
         Returns the created user model.
         """
-        hashed_password = get_password_hash(password)
-        user = Users(username=username, hashed_password=hashed_password)
-        self.db.add(user)
-        self.db.commit()
-        self.db.refresh(user)
+        try:
+            hashed_password = get_password_hash(password)
+            user = Users(username=username, hashed_password=hashed_password)
+            self.db.add(user)
+            self.db.commit()
+            self.db.refresh(user)
+
+        except IntegrityError as e:
+            logger.exception("User creation failed due to integrity error.")
+            self.db.rollback()
+            raise UserAlreadyExistsError() from e
 
     def _authenticate_user(self, username: str, password: str):
         """
@@ -48,10 +55,18 @@ class AuthService:
         """
         user = self.db.query(Users).filter(Users.username == username).first()
         if not user:
-            return None
-        if not verify_password(password, user.hashed_password):
-            return None
+            logger.warning(
+                f"Authentication failed: user '{username}' not found."
+            )
+            raise InvalidCredentialsError()
 
+        if not verify_password(password, user.hashed_password):
+            logger.warning(
+                f"Authentication failed: invalid password for user '{username}'."
+            )
+            raise InvalidCredentialsError()
+
+        logger.debug(f"User '{username}' successfully authenticated.")
         return user
 
     async def login(self, username: str, password: str) -> LoginResponse:
@@ -60,24 +75,22 @@ class AuthService:
         """
 
         user = self._authenticate_user(username, password)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid credentials",
-            )
 
         access_token = create_token(
             username=user.username,
             user_id=user.id,
-            expires_delta=timedelta(minutes=1),
+            expires_delta=config.access_token_expire_delta,
             type="access",
         )
         refresh_token = create_token(
             username=user.username,
             user_id=user.id,
-            expires_delta=timedelta(minutes=2),
+            expires_delta=config.refresh_token_expire_delta,
             type="refresh",
         )
+
+        logger.info(f"Issued new tokens for user '{username}'")
+
         return LoginResponse(
             access_token=access_token, refresh_token=refresh_token
         )
@@ -90,16 +103,16 @@ class AuthService:
 
         payload = verify_token(refresh_token, "refresh")
         if payload is None:
-            raise TokenVerificationError("Token verification failed")
+            raise InvalidTokenError()
 
         username = payload.get("sub")
         user_id = payload.get("id")
 
         if not username or not user_id:
-            raise InvalidTokenPayloadError("Missing user data in token")
+            raise InvalidTokenError()
 
         new_access_token = create_token(
-            username, user_id, timedelta(minutes=2), "access"
+            username, user_id, config.access_token_expire_delta, "access"
         )
 
         return RefreshTokenResponse(access_token=new_access_token)

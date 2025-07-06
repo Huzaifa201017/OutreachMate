@@ -9,9 +9,8 @@ from config import Config
 
 
 config = Config()
-DB_URL = config.db_url
 
-engine = create_engine(DB_URL)
+engine = create_engine(config.db_url)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
