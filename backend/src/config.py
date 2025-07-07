@@ -19,9 +19,7 @@ def get_timedelta_from_string(duration: str) -> timedelta:
         case "d":
             return timedelta(days=value)
         case _:
-            raise ValueError(
-                "Invalid time unit in ACCESS_TOKEN_EXPIRE_DURATION"
-            )
+            raise ValueError("Invalid time unit")
 
 
 class Config(BaseSettings):

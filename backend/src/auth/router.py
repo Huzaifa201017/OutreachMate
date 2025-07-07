@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from fastapi.security import OAuth2PasswordRequestForm
 from requests import Session
 from starlette import status
-from .schemas import CreateUserRequest, LoginResponse
+from .schemas import CreateUserRequest, LoginRequest, LoginResponse
 from .service import AuthService
 from database import get_db
 from .dependencies import get_current_user
@@ -28,7 +28,8 @@ async def create_user(
 
     auth_service = AuthService(db)
     auth_service.create_user(
-        username=create_user_request.username,
+        firstname=create_user_request.firstname,
+        email=create_user_request.email,
         password=create_user_request.password,
     )
     logger.info(f"User created successfully !")
@@ -36,7 +37,7 @@ async def create_user(
 
 @router.post("/login", response_model=LoginResponse)
 async def login(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    login_request: LoginRequest,
     db: db_dependency,
 ):
     """
@@ -45,9 +46,9 @@ async def login(
 
     auth_service = AuthService(db)
     login_response = await auth_service.login(
-        username=form_data.username, password=form_data.password
+        email=login_request.email, password=login_request.password
     )
-    logger.info(f"User {form_data.username} logged in successfully")
+    logger.info(f"User {login_request.email} logged in successfully")
     return login_response
 
 

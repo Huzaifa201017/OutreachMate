@@ -21,10 +21,10 @@ def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):
     if payload is None:
         raise InvalidTokenError("Token verification failed")
 
-    username = payload.get("sub")
+    email = payload.get("sub")
     user_id = payload.get("id")
 
-    if not username or not user_id:
+    if not email or not user_id:
         raise InvalidTokenError("Missing user data in token")
 
-    return {"username": username, "id": user_id}
+    return {"email": email, "id": user_id}

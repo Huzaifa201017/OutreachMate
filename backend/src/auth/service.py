@@ -31,14 +31,18 @@ class AuthService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_user(self, username: str, password: str):
+    def create_user(self, firstname: str, email: str, password: str):
         """
         Creates a new user with a hashed password.
         Returns the created user model.
         """
         try:
             hashed_password = get_password_hash(password)
-            user = Users(username=username, hashed_password=hashed_password)
+            user = Users(
+                first_name=firstname,
+                hashed_password=hashed_password,
+                email=email,
+            )
             self.db.add(user)
             self.db.commit()
             self.db.refresh(user)
@@ -48,48 +52,46 @@ class AuthService:
             self.db.rollback()
             raise UserAlreadyExistsError() from e
 
-    def _authenticate_user(self, username: str, password: str):
+    def _authenticate_user(self, email: str, password: str):
         """
-        Verifies the username and password against stored hashed password.
+        Verifies the email and password against stored hashed password.
         Returns the user if authentication is successful, otherwise returns False.
         """
-        user = self.db.query(Users).filter(Users.username == username).first()
+        user = self.db.query(Users).filter(Users.email == email).first()
         if not user:
             logger.warning(
-                f"Authentication failed: user '{username}' not found."
+                f"Authentication failed: Email '{email}' not found."
             )
             raise InvalidCredentialsError()
 
         if not verify_password(password, user.hashed_password):
-            logger.warning(
-                f"Authentication failed: invalid password for user '{username}'."
-            )
+            logger.warning(f"Authentication failed: invalid password.")
             raise InvalidCredentialsError()
 
-        logger.debug(f"User '{username}' successfully authenticated.")
+        logger.debug(f"User '{email}' successfully authenticated.")
         return user
 
-    async def login(self, username: str, password: str) -> LoginResponse:
+    async def login(self, email: str, password: str) -> LoginResponse:
         """
         Authenticates user credentials and returns a JWT token if valid.
         """
 
-        user = self._authenticate_user(username, password)
+        user = self._authenticate_user(email, password)
 
         access_token = create_token(
-            username=user.username,
+            email=user.email,
             user_id=user.id,
             expires_delta=config.access_token_expire_delta,
             type="access",
         )
         refresh_token = create_token(
-            username=user.username,
+            email=user.email,
             user_id=user.id,
             expires_delta=config.refresh_token_expire_delta,
             type="refresh",
         )
 
-        logger.info(f"Issued new tokens for user '{username}'")
+        logger.info(f"Issued new tokens for user '{email}'")
 
         return LoginResponse(
             access_token=access_token, refresh_token=refresh_token
@@ -105,14 +107,14 @@ class AuthService:
         if payload is None:
             raise InvalidTokenError()
 
-        username = payload.get("sub")
+        email = payload.get("sub")
         user_id = payload.get("id")
 
-        if not username or not user_id:
+        if not email or not user_id:
             raise InvalidTokenError()
 
         new_access_token = create_token(
-            username, user_id, config.access_token_expire_delta, "access"
+            email, user_id, config.access_token_expire_delta, "access"
         )
 
         return RefreshTokenResponse(access_token=new_access_token)

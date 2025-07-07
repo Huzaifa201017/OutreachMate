@@ -23,12 +23,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_token(
-    username: str, user_id: int, expires_delta: timedelta, type: str
+    email: str, user_id: int, expires_delta: timedelta, type: str
 ):
     """
     Generates a JWT access token with an expiration time.
     """
-    encode = {"sub": username, "id": user_id}
+    encode = {"sub": email, "id": user_id}
     expires = datetime.now(timezone.utc) + expires_delta
     encode.update({"exp": expires, "token_type": type})
     return jwt.encode(encode, config.SECRET_KEY, algorithm=config.ALGORITHM)
