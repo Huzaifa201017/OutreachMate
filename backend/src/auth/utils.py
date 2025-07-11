@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import logging
+import random
+import string
 from typing import Optional
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
@@ -68,3 +70,11 @@ def verify_token(token: str, token_type: str) -> Optional[dict]:
     except JWTError as e:
         logger.exception(f"Token verification failed: {str(e)}")
         raise InvalidTokenError() from e
+
+
+def generate_otp(length=6):
+    return "".join(random.choices(string.digits, k=length))
+
+
+def send_email():
+    pass

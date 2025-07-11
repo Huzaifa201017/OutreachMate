@@ -1,7 +1,6 @@
 import logging
 from typing import Annotated
 from fastapi import APIRouter, Depends
-from fastapi.security import OAuth2PasswordRequestForm
 from requests import Session
 from starlette import status
 from .schemas import CreateUserRequest, LoginRequest, LoginResponse
@@ -27,7 +26,7 @@ async def create_user(
 ):
 
     auth_service = AuthService(db)
-    auth_service.create_user(
+    await auth_service.create_user(
         firstname=create_user_request.firstname,
         email=create_user_request.email,
         password=create_user_request.password,

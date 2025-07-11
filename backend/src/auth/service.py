@@ -1,4 +1,7 @@
+import asyncio
 import logging
+from fastapi_mail import FastMail, MessageSchema, MessageType
+from pydantic import EmailStr
 from sqlalchemy.exc import IntegrityError
 from requests import Session
 
@@ -11,12 +14,14 @@ from .schemas import LoginResponse, RefreshTokenResponse
 
 from .utils import (
     create_token,
+    generate_otp,
     get_password_hash,
     verify_password,
     verify_token,
 )
 from models import Users
 from config import Config
+from config import mail_conf
 
 config = Config()
 SECRET_KEY = config.SECRET_KEY
@@ -31,7 +36,31 @@ class AuthService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_user(self, firstname: str, email: str, password: str):
+    async def send_otp_email(self, recipient_email: EmailStr, name: str):
+
+        otp = generate_otp()
+
+        # Template data
+        template_body = {
+            "name": name,
+            "otp": otp,
+            "company_name": "CodeGraphers",
+            "validity_minutes": 10,
+        }
+
+        # Create message
+        message = MessageSchema(
+            subject="Your OTP Verification Code",
+            recipients=[recipient_email],
+            template_body=template_body,
+            subtype=MessageType.html,
+        )
+
+        fm = FastMail(mail_conf)
+        await fm.send_message(message, template_name="otp-email.html")
+        logger.info(f"OTP sent to {recipient_email}")
+
+    async def create_user(self, firstname: str, email: str, password: str):
         """
         Creates a new user with a hashed password.
         Returns the created user model.
@@ -46,6 +75,10 @@ class AuthService:
             self.db.add(user)
             self.db.commit()
             self.db.refresh(user)
+
+            asyncio.create_task(
+                self.send_otp_email(recipient_email=email, name=firstname)
+            )
 
         except IntegrityError as e:
             logger.exception("User creation failed due to integrity error.")

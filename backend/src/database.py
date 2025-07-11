@@ -1,6 +1,3 @@
-from typing import Annotated
-from fastapi import Depends
-from requests import Session
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker

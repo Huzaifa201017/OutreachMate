@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean
 from database import Base
 
 
@@ -9,3 +9,4 @@ class Users(Base):
     first_name = Column(String)
     email = Column(String, unique=True)
     hashed_password = Column(String)
+    is_verified = Column(Boolean, default=False)

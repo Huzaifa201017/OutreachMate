@@ -4,9 +4,9 @@ from auth.router import router
 from exceptions import BaseAppException
 import models
 from database import engine
-import logging
+from logger import setup_logging
 
-logger = logging.getLogger(__name__)
+setup_logging()
 
 app = FastAPI()
 
