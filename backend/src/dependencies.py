@@ -1,13 +1,18 @@
+from fastapi import Request, Depends
+from redis.asyncio.client import Redis
 from typing import Annotated
 from fastapi.params import Depends
 from typing import Annotated
 import logging
 
-from exceptions import InvalidTokenError
-from .utils import oauth2_bearer, verify_token
-from fastapi import Depends
+from src.exceptions import InvalidTokenError
+from src.auth.utils import oauth2_bearer, verify_token
 
 logger = logging.getLogger(__name__)
+
+
+def get_redis(request: Request) -> Redis:
+    return request.app.state.redis
 
 
 def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):

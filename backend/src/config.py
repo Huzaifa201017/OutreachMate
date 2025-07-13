@@ -23,7 +23,7 @@ def get_timedelta_from_string(duration: str) -> timedelta:
             raise ValueError("Invalid time unit")
 
 
-class Config(BaseSettings):
+class AppConfig(BaseSettings):
     DB_HOST: str
     DB_NAME: str
     DB_USER: str
@@ -33,6 +33,7 @@ class Config(BaseSettings):
     ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_DURATION: str
     REFRESH_TOKEN_EXPIRE_DURATION: str
+    OTP_EXPIRY: str
 
     # Mail
     MAIL_USERNAME: str
@@ -43,9 +44,10 @@ class Config(BaseSettings):
     MAIL_PORT: int
     MAIL_STARTTLS: bool
     MAIL_SSL_TLS: bool
-    USE_CREDENTIALS: bool = True
-    VALIDATE_CERTS: bool = True
-    TEMPLATE_FOLDER: str = "templates"
+    USE_CREDENTIALS: bool
+    VALIDATE_CERTS: bool
+    TEMPLATE_FOLDER: str
+    MAIL_DEBUG: int
 
     @property
     def db_url(self):
@@ -59,12 +61,46 @@ class Config(BaseSettings):
     def refresh_token_expire_delta(self) -> timedelta:
         return get_timedelta_from_string(self.REFRESH_TOKEN_EXPIRE_DURATION)
 
+    @property
+    def otp_expire_delta(self) -> timedelta:
+        return get_timedelta_from_string(self.OTP_EXPIRY)
+
+    @property
+    def otp_expiry_description(self) -> str:
+        """
+        Returns a human-readable description of the OTP expiry duration.
+        E.g., "2m" → "2 minutes", "1h" → "1 hour"
+        """
+
+        unit_map = {
+            "m": ("minute", "minutes"),
+            "h": ("hour", "hours"),
+            "d": ("day", "days"),
+        }
+
+        duration_str = self.OTP_EXPIRY.strip().lower()
+
+        if not duration_str or len(duration_str) < 2:
+            raise ValueError(f"Invalid OTP_EXPIRY format: '{duration_str}'")
+
+        num, unit = duration_str[:-1], duration_str[-1]
+
+        if unit not in unit_map:
+            raise ValueError(f"Unsupported time unit: '{unit}' in OTP_EXPIRY")
+
+        try:
+            value = int(num)
+        except ValueError:
+            raise ValueError(f"Invalid duration number in OTP_EXPIRY: '{num}'")
+
+        singular, plural = unit_map[unit]
+        return f"{value} {singular if value == 1 else plural}"
+
     class Config:
         env_file = ".env"
 
 
-config = Config()
-
+config = AppConfig()
 mail_conf = ConnectionConfig(
     MAIL_USERNAME=config.MAIL_USERNAME,
     MAIL_PASSWORD=config.MAIL_PASSWORD,
@@ -77,5 +113,5 @@ mail_conf = ConnectionConfig(
     USE_CREDENTIALS=config.USE_CREDENTIALS,
     VALIDATE_CERTS=config.VALIDATE_CERTS,
     TEMPLATE_FOLDER=config.TEMPLATE_FOLDER,
-    MAIL_DEBUG=1,
+    MAIL_DEBUG=config.MAIL_DEBUG,
 )

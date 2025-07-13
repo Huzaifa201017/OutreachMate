@@ -2,15 +2,17 @@ from datetime import datetime, timedelta, timezone
 import logging
 import random
 import string
-from typing import Optional
+from requests import Session
+from typing import Dict, List, Optional, Union
 from fastapi.security import OAuth2PasswordBearer
+from fastapi_mail import FastMail, MessageSchema, MessageType
 from passlib.context import CryptContext
-from exceptions import InvalidTokenError
-from config import Config
+from pydantic import EmailStr
+from src.exceptions import InvalidTokenError
+from src.config import config
 from jose import ExpiredSignatureError, JWTError, jwt
+from src.config import mail_conf
 
-
-config = Config()
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_bearer = OAuth2PasswordBearer(tokenUrl="auth/login")
 logger = logging.getLogger(__name__)
@@ -76,5 +78,25 @@ def generate_otp(length=6):
     return "".join(random.choices(string.digits, k=length))
 
 
-def send_email():
-    pass
+async def send_email_with_template(
+    subject: str,
+    recipients: Union[EmailStr, List[EmailStr]],
+    template_name: str,
+    template_body: Dict,
+):
+    """
+    Sends an email using a Jinja2 template via FastAPI-Mail.
+    """
+    if isinstance(recipients, str):
+        recipients = [recipients]
+
+    message = MessageSchema(
+        subject=subject,
+        recipients=recipients,
+        template_body=template_body,
+        subtype=MessageType.html,
+    )
+
+    fm = FastMail(mail_conf)
+    await fm.send_message(message, template_name=template_name)
+    logger.info(f"Email sent to {recipients} with template '{template_name}'")

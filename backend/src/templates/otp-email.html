@@ -17,6 +17,8 @@
             line-height: 1.6;
             color: #333;
             background-color: #f4f4f4;
+            padding-top: 30px;
+            padding-bottom: 30px;
         }
 
         .email-container {
@@ -190,7 +192,7 @@
             <div class="otp-container">
                 <div class="otp-label">Your Verification Code</div>
                 <div class="otp-code">{{ otp }}</div>
-                <div class="otp-validity">Valid for {{ validity_minutes }} minutes</div>
+                <div class="otp-validity">Valid for {{ validity_duraton_desc }}</div>
             </div>
 
             <div class="warning">

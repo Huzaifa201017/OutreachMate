@@ -1,18 +1,36 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from auth.router import router
-from exceptions import BaseAppException
-import models
-from database import engine
-from logger import setup_logging
+from src.exceptions import BaseAppException
+from src.logger import setup_logging
+import redis.asyncio as redis
+from src.auth.router import router
 
-setup_logging()
+# models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
 
-models.Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
 
+    # Code to run on application startup
+    print("Application is starting up...")
+    app.state.redis = redis.Redis(
+        host="localhost",
+        port=6379,
+        db=0,
+        decode_responses=True,
+    )
+
+    yield  # The application will handle requests here
+
+    # Code to run on application shutdown
+    print("Application is shutting down...")
+    await app.state.redis.close()
+
+
+app = FastAPI(lifespan=lifespan)
 app.include_router(router)
+setup_logging()
 
 
 # Global exception handler
@@ -21,16 +39,3 @@ async def app_exception_handler(request, exc):
     return JSONResponse(
         status_code=exc.status_code, content={"error": exc.message}
     )
-
-
-# @app.exception_handler(Exception)
-# async def unhandled_exception_handler(request: Request, exc: Exception):
-#     # Custom logging for any unexpected error
-#     logger.exception(f"Unhandled exception at {request.url.path}: {exc}")
-
-#     return JSONResponse(
-#         status_code=500,
-#         content={
-#             "error": "An unexpected error occurred. Please try again later."
-#         },
-#     )
