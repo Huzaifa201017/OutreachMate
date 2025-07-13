@@ -6,6 +6,7 @@ from requests import Session
 
 from src.auth.constants import AuthConstants
 from src.exceptions import (
+    BaseAppException,
     InvalidCredentialsError,
     InvalidOTPError,
     InvalidTokenError,
@@ -24,10 +25,12 @@ from .schemas import (
 )
 from redis.asyncio.client import Redis
 from .utils import (
-    create_token,
+    create_tokens,
     generate_otp,
     get_password_hash,
+    get_user_by_email,
     send_email_with_template,
+    store_refresh_token,
     verify_password,
     verify_token,
 )
@@ -46,68 +49,149 @@ class AuthService:
 
     async def _send_otp_email(
         self, recipient_email: EmailStr, recipient_name: str
-    ):
+    ) -> None:
+        """
+        Send an OTP verification email to a user.
+
+        Flow:
+        1. Generate a new OTP
+        2. Store OTP in Redis with expiration
+        3. Send email with OTP using template
+
+        Args:
+            recipient_email: User's email address
+            recipient_name: User's first name
+
+        Raises:
+            Exception: If OTP generation, storage, or email sending fails
+        """
+
+        logger.debug(f"Starting OTP email process for: {recipient_email}")
 
         try:
-
+            # Step 1: Generate new OTP
             otp = generate_otp()
+            logger.info(
+                f"Generated OTP for {recipient_email}",
+                extra={"user_email": recipient_email},
+            )
+
+            # Step 2: Store OTP in Redis
+            redis_key = f"otp:{recipient_email}"
+            await self.redis_client.setex(
+                name=redis_key, value=otp, time=config.otp_expire_delta
+            )
+            logger.debug(
+                f"Stored OTP in Redis with expiration: {config.otp_expire_delta}s",
+                extra={"user_email": recipient_email},
+            )
+
+            # Step 3: Prepare and send email
             template_body = {
                 "name": recipient_name,
                 "otp": otp,
                 "company_name": config.MAIL_FROM_NAME,
                 "validity_duration_desc": config.otp_expiry_description,
             }
-            logger.info("OTP generated successfully")
-
-            # Store OTP in Redis with expiration
-            await self.redis_client.setex(
-                name=f"otp:{recipient_email}",
-                value=otp,
-                time=config.otp_expire_delta,
-            )
-            logger.info(f"OTP stored in Redis for {recipient_email}")
 
             await send_email_with_template(
                 subject=AuthConstants.OTP_EMAIL_SUBJECT,
-                recipients=recipient_email,
+                recipients=[recipient_email],
                 template_name=AuthConstants.OTP_EMAIL_TEMPLATE,
                 template_body=template_body,
             )
+            logger.info(
+                "OTP email sent successfully",
+                extra={
+                    "user_email": recipient_email,
+                    "template": AuthConstants.OTP_EMAIL_TEMPLATE,
+                },
+            )
 
         except Exception as e:
-            logger.exception(f"Failed to send OTP email to {recipient_email}")
+            logger.exception(
+                "Failed to send OTP email",
+                extra={"user_email": recipient_email},
+                exc_info=True,
+            )
 
-    def _authenticate_user(self, email: str, password: str):
+    def _authenticate_user(self, email: str, password: str) -> Users:
         """
-        Verifies the email and password against stored hashed password.
-        Returns the user if authentication is successful, otherwise returns False.
+        Authenticates a user by email and password.
+
+        Flow:
+        1. Check if user exists with provided email
+        2. Validate password against stored hash
+        3. Return authenticated user if successful
+
+        Args:
+            email: User's email address
+            password: User's plaintext password
+
+        Returns:
+            Users: Authenticated user model
+
+        Raises:
+            InvalidCredentialsError: If email not found or password invalid
         """
-        user = self.db.query(Users).filter(Users.email == email).first()
+
+        logger.debug("Starting authentication process", extra={"email": email})
+
+        # Step 1: Verify user exists
+        user = get_user_by_email(self.db, email)
         if not user:
             logger.warning(
-                f"Authentication failed: Email '{email}' not found."
+                "Authentication failed: user not found", extra={"email": email}
             )
             raise InvalidCredentialsError()
 
+        # Step 2: Validate password
         if not verify_password(password, user.hashed_password):
-            logger.warning(f"Authentication failed: invalid password.")
+            logger.warning(
+                "Authentication failed: invalid password",
+                extra={"email": email},
+            )
             raise InvalidCredentialsError()
 
-        logger.debug(f"User '{email}' successfully authenticated.")
+        # Step 3: Authentication successful
+        logger.info("User authenticated successfully", extra={"email": email})
         return user
 
     async def create_user(
         self,
         create_user_request: CreateUserRequest,
         background_tasks: BackgroundTasks,
-    ):
+    ) -> None:
         """
-        Creates a new user with a hashed password.
-        Returns the created user model.
-        """
-        try:
+        Creates a new user account and initiates email verification.
 
+        Flow:
+        1. Hash the user's password
+        2. Create new user record in database
+        3. Send verification OTP email
+
+        Args:
+            create_user_request: Contains user registration details
+            background_tasks: FastAPI background tasks handler
+
+        Returns:
+            Users: The created user model
+
+        Raises:
+            UserAlreadyExistsError: If email already registered
+        """
+
+        logger.info(
+            "Starting user creation process",
+            extra={"email": create_user_request.email},
+        )
+
+        try:
+            # Step 1: Hash password
             hashed_password = get_password_hash(create_user_request.password)
+            logger.debug("Password hashed successfully")
+
+            # Step 2: Create user record
             user = Users(
                 first_name=create_user_request.firstname,
                 hashed_password=hashed_password,
@@ -117,14 +201,27 @@ class AuthService:
             self.db.commit()
             self.db.refresh(user)
 
+            logger.info(
+                "User created successfully",
+                extra={"user_id": user.id, "email": user.email},
+            )
+
+            # Step 3: Schedule OTP email
             background_tasks.add_task(
                 self._send_otp_email,
                 recipient_email=create_user_request.email,
                 recipient_name=create_user_request.firstname,
             )
+            logger.debug(
+                "Verification email scheduled",
+                extra={"email": create_user_request.email},
+            )
 
         except IntegrityError as e:
-            logger.exception("User creation failed due to integrity error.")
+            logger.exception(
+                "User creation failed - email already exists",
+                extra={"email": create_user_request.email},
+            )
             self.db.rollback()
             raise UserAlreadyExistsError() from e
 
@@ -135,21 +232,31 @@ class AuthService:
     ) -> LoginResponse:
         """
         Authenticates user credentials and returns a JWT token if valid.
+
+        Flow:
+        1. Authenticate user credentials
+        2. Check if user is verified
+        3. If not verified, send OTP and return verification required response
+        4. If verified, generate tokens and return successful login response
         """
 
+        # Step 1: Authenticate user credentials against database
         user = self._authenticate_user(
             login_request.email, login_request.password
         )
 
+        # Step 2: Check if user has verified their email
         if not user.is_verified:
             logger.warning(f"User '{login_request.email}' is not verified.")
 
+            # Step 3a: Send verification OTP via email
             background_tasks.add_task(
                 self._send_otp_email,
                 recipient_email=user.email,
                 recipient_name=user.first_name,
             )
 
+            # Step 3b: Return response indicating verification needed
             return LoginResponse(
                 requires_verification=True,
                 detail="Email not verified. OTP has been sent to your email.",
@@ -157,27 +264,17 @@ class AuthService:
 
         logger.info(f"User '{login_request.email}' verified successfully.")
 
-        access_token = create_token(
-            email=user.email,
-            user_id=user.id,
-            expires_delta=config.access_token_expire_delta,
-            type="access",
-        )
-        refresh_token = create_token(
-            email=user.email,
-            user_id=user.id,
-            expires_delta=config.refresh_token_expire_delta,
-            type="refresh",
-        )
+        # Step 4a: Generate new access and refresh tokens
+        access_token, refresh_token = create_tokens(user.email, user.id)
 
-        await self.redis_client.setex(
-            f"refresh_token:{user.id}:{login_request.device_id}",
-            config.refresh_token_expire_delta,
-            refresh_token,
+        # Step 4b: Store refresh token in Redis for this device
+        await store_refresh_token(
+            self.redis_client, user.id, login_request.device_id, refresh_token
         )
 
         logger.info(f"Issued new tokens for user '{user.email}'")
 
+        # Return successful login response with tokens
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -189,52 +286,64 @@ class AuthService:
         self, refresh_token_request: RefreshTokenRequest, refresh_token: str
     ) -> RefreshTokenResponse:
         """
-        Refreshes the access token using the provided refresh token.
-        Returns a new access token if the refresh token is valid.
+        Refresh access and refresh tokens using a valid refresh token.
+
+        Flow:
+        1. Verify the provided refresh token signature and expiry
+        2. Extract user information from token payload
+        3. Validate token against stored token in Redis to prevent reuse
+        4. Generate and store new token pair
+        5. Return new tokens to client
+
+        Args:
+            refresh_token_request: Contains device_id for token validation
+            refresh_token: The refresh token to verify
+
+        Returns:
+            RefreshTokenResponse with new access and refresh tokens
+
+        Raises:
+            InvalidTokenError: If token is invalid, expired or reused
         """
 
-        # Verify the refresh token
+        logger.debug("Starting token refresh process")
+
+        # Step 1: Verify token signature and expiry
         payload = verify_token(refresh_token, "refresh")
-        if payload is None:
+        if not payload:
+            logger.warning("Invalid or expired refresh token provided")
             raise InvalidTokenError()
 
+        # Step 2: Extract and validate user information
         email = payload.get("sub")
         user_id = payload.get("id")
 
-        if not email or not user_id:
+        if not all([email, user_id]):
+            logger.error("Malformed token payload - missing required claims")
             raise InvalidTokenError()
 
-        # Check if the refresh token exists in Redis
+        # Step 3: Validate against stored token
         device_id = refresh_token_request.device_id
-        old_refresh_token = await self.redis_client.get(
-            f"refresh_token:{user_id}:{device_id}",
-        )
+        redis_key = f"refresh_token:{user_id}:{device_id}"
+        stored_token = await self.redis_client.get(redis_key)
 
-        if old_refresh_token != refresh_token:
+        if stored_token != refresh_token:
             logger.warning(
-                f"Refresh token mismatch for user {email} on device {device_id}, means someone tried to reuse the token"
+                f"Potential token reuse detected - User: {email}, Device: {device_id}"
             )
             raise InvalidTokenError()
 
-        new_access_token = create_token(
-            email=email,
-            user_id=user_id,
-            expires_delta=config.access_token_expire_delta,
-            type="access",
+        logger.info(f"Valid refresh token for user {email}")
+
+        # Step 4: Generate new tokens
+        new_access_token, new_refresh_token = create_tokens(email, user_id)
+        await store_refresh_token(
+            self.redis_client, user_id, device_id, new_refresh_token
         )
 
-        new_refresh_token = create_token(
-            email=email,
-            user_id=user_id,
-            expires_delta=config.refresh_token_expire_delta,
-            type="refresh",
-        )
+        logger.info(f"Successfully refreshed tokens for user {email}")
 
-        await self.redis_client.setex(
-            f"refresh_token:{user_id}:{device_id}",
-            config.refresh_token_expire_delta,
-            new_refresh_token,
-        )
+        # Step 5: Return new token pair
         return RefreshTokenResponse(
             access_token=new_access_token, refresh_token=new_refresh_token
         )
@@ -243,52 +352,84 @@ class AuthService:
         self, verify_otp_request: VerifyOTPRequest
     ) -> VerifyOTPResponse:
         """
-        Verifies the OTP for a given email address.
-        Returns a new  pair of access and refresh tokens if the OTP is valid.
+        Verifies the OTP for a user and marks their account as verified.
+
+        Flow:
+        1. Validate user exists and needs verification
+        2. Check OTP validity against stored value
+        3. Mark user as verified
+        4. Generate authentication tokens
+        5. Return tokens to complete verification
+
+        Args:
+            verify_otp_request: Contains email, OTP and device_id
+
+        Returns:
+            VerifyOTPResponse with new access and refresh tokens
+
+        Raises:
+            UserNotFoundError: If user doesn't exist
+            UserAlreadyVerifiedError: If user is already verified
+            InvalidOTPError: If OTP is invalid or expired
         """
 
-        email = verify_otp_request.email
-        otp = verify_otp_request.otp
+        logger.info(
+            f"Starting OTP verification for email: {verify_otp_request.email}"
+        )
 
-        user = self.db.query(Users).filter(Users.email == email).first()
-
+        # Step 1: Validate user exists and needs verification
+        user = get_user_by_email(self.db, verify_otp_request.email)
         if not user:
+            logger.warning(f"User not found: {verify_otp_request.email}")
             raise UserNotFoundError()
 
         if user.is_verified:
+            logger.warning(
+                f"User already verified: {verify_otp_request.email}"
+            )
             raise UserAlreadyVerifiedError()
 
-        otp_key = f"otp:{email}"
-        otp_in_redis = await self.redis_client.get(otp_key)
+        # Step 2: Check OTP validity
+        otp_key = f"otp:{verify_otp_request.email}"
+        stored_otp = await self.redis_client.get(otp_key)
 
-        if not otp_in_redis or otp_in_redis != otp:
+        if not stored_otp or stored_otp != verify_otp_request.otp:
+            logger.warning(
+                f"Invalid OTP provided for user: {verify_otp_request.email}"
+            )
             raise InvalidOTPError()
 
-        user.is_verified = True
-        self.db.commit()
+        try:
+            # Step 3: Mark user as verified
+            user.is_verified = True
+            self.db.commit()
+            self.db.refresh(user)
+            logger.info(f"User marked as verified: {verify_otp_request.email}")
 
-        # Delete OTP
-        await self.redis_client.delete(otp_key)
+            # Clean up the used OTP
+            await self.redis_client.delete(otp_key)
+            logger.debug(
+                f"OTP deleted from Redis for user: {verify_otp_request.email}"
+            )
 
-        access_token = create_token(
-            email=user.email,
-            user_id=user.id,
-            expires_delta=config.access_token_expire_delta,
-            type="access",
-        )
-        refresh_token = create_token(
-            email=user.email,
-            user_id=user.id,
-            expires_delta=config.refresh_token_expire_delta,
-            type="refresh",
-        )
+            # Step 4: Generate authentication tokens
+            access_token, refresh_token = create_tokens(user.email, user.id)
+            await store_refresh_token(
+                self.redis_client,
+                user.id,
+                verify_otp_request.device_id,
+                refresh_token,
+            )
+            logger.info(
+                f"Authentication tokens generated for user: {verify_otp_request.email}"
+            )
 
-        await self.redis_client.setex(
-            f"refresh_token:{user.id}:{verify_otp_request.device_id}",
-            config.refresh_token_expire_delta,
-            refresh_token,
-        )
+            # Step 5: Return successful verification response
+            return VerifyOTPResponse(
+                access_token=access_token, refresh_token=refresh_token
+            )
 
-        return VerifyOTPResponse(
-            access_token=access_token, refresh_token=refresh_token
-        )
+        except Exception as e:
+            logger.exception(f"Error during OTP verification: {str(e)}")
+            self.db.rollback()
+            raise BaseAppException() from e

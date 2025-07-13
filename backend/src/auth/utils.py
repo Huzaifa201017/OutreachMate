@@ -2,19 +2,18 @@ from datetime import datetime, timedelta, timezone
 import logging
 import random
 import string
-from requests import Session
 from typing import Dict, List, Optional, Union
-from fastapi.security import OAuth2PasswordBearer
 from fastapi_mail import FastMail, MessageSchema, MessageType
 from passlib.context import CryptContext
 from pydantic import EmailStr
+from src.auth.constants import AuthConstants
+from src.models import Users
 from src.exceptions import InvalidTokenError
 from src.config import config
 from jose import ExpiredSignatureError, JWTError, jwt
 from src.config import mail_conf
 
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_bearer = OAuth2PasswordBearer(tokenUrl="auth/login")
 logger = logging.getLogger(__name__)
 
 
@@ -100,3 +99,42 @@ async def send_email_with_template(
     fm = FastMail(mail_conf)
     await fm.send_message(message, template_name=template_name)
     logger.info(f"Email sent to {recipients} with template '{template_name}'")
+
+
+def create_tokens(email: str, user_id: int):
+    """
+    Utility to create access and refresh tokens.
+    """
+    access_token = create_token(
+        email=email,
+        user_id=user_id,
+        expires_delta=config.access_token_expire_delta,
+        type=AuthConstants.ACCESS_TOKEN_TYPE,
+    )
+    refresh_token = create_token(
+        email=email,
+        user_id=user_id,
+        expires_delta=config.refresh_token_expire_delta,
+        type=AuthConstants.REFRESH_TOKEN_TYPE,
+    )
+    return access_token, refresh_token
+
+
+async def store_refresh_token(
+    redis_client, user_id: int, device_id: str, token: str
+):
+    """
+    Utility to store refresh token in Redis.
+    """
+    await redis_client.setex(
+        f"refresh_token:{user_id}:{device_id}",
+        config.refresh_token_expire_delta,
+        token,
+    )
+
+
+def get_user_by_email(db, email: str):
+    """
+    Fetch user by email from the database.
+    """
+    return db.query(Users).filter(Users.email == email).first()

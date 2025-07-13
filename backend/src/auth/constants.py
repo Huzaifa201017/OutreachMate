@@ -5,3 +5,6 @@ class AuthConstants:
 
     OTP_EMAIL_TEMPLATE: str = "otp-email.html"
     OTP_EMAIL_SUBJECT: str = "OTP Verification Code"
+    LOGIN_URL: str = "/auth/login"
+    ACCESS_TOKEN_TYPE: str = "access"
+    REFRESH_TOKEN_TYPE: str = "refresh"
