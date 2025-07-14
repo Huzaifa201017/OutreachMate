@@ -12,6 +12,11 @@ class BaseAppException(Exception):
         super().__init__(message)
 
 
+class UnknowError(BaseAppException):
+    def __init__(self, message="Unknown Error"):
+        super().__init__(message, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class UserAlreadyExistsError(BaseAppException):
     """Raised when a user already exists in the system."""
 

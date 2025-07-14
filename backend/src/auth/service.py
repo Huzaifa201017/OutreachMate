@@ -1,18 +1,18 @@
 import logging
 from fastapi import BackgroundTasks
+from fastapi_mail import ConnectionConfig
 from pydantic import EmailStr
 from sqlalchemy.exc import IntegrityError
-from requests import Session
+from sqlalchemy.orm import Session
 
 from src.auth.constants import AuthConstants
 from src.exceptions import (
-    BaseAppException,
     InvalidCredentialsError,
     InvalidOTPError,
     InvalidTokenError,
+    UnknowError,
     UserAlreadyExistsError,
     UserAlreadyVerifiedError,
-    UserNotFoundError,
 )
 from .schemas import (
     CreateUserRequest,
@@ -27,15 +27,16 @@ from redis.asyncio.client import Redis
 from .utils import (
     create_tokens,
     generate_otp,
+    get_cache_value,
     get_password_hash,
     get_user_by_email,
     send_email_with_template,
-    store_refresh_token,
+    set_cache_with_expiry,
     verify_password,
     verify_token,
 )
 from src.models import Users
-from src.config import config
+from src.config import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +44,17 @@ logger = logging.getLogger(__name__)
 class AuthService:
     """Service class for authentication operations"""
 
-    def __init__(self, db: Session, redis_client: Redis):
+    def __init__(
+        self,
+        db: Session,
+        redis_client: Redis,
+        config: AppConfig,
+        system_mail_config: ConnectionConfig,
+    ):
         self.db = db
         self.redis_client = redis_client
+        self.config = config
+        self.system_mail_config = system_mail_config
 
     async def _send_otp_email(
         self, recipient_email: EmailStr, recipient_name: str
@@ -77,12 +86,14 @@ class AuthService:
             )
 
             # Step 2: Store OTP in Redis
-            redis_key = f"otp:{recipient_email}"
-            await self.redis_client.setex(
-                name=redis_key, value=otp, time=config.otp_expire_delta
+            await set_cache_with_expiry(
+                redis_client=self.redis_client,
+                key=f"otp:{recipient_email}",
+                value=otp,
+                expiry_duration=self.config.otp_expire_delta,
             )
             logger.debug(
-                f"Stored OTP in Redis with expiration: {config.otp_expire_delta}s",
+                f"Stored OTP in Redis with expiration: {self.config.otp_expire_delta}s",
                 extra={"user_email": recipient_email},
             )
 
@@ -90,8 +101,8 @@ class AuthService:
             template_body = {
                 "name": recipient_name,
                 "otp": otp,
-                "company_name": config.MAIL_FROM_NAME,
-                "validity_duration_desc": config.otp_expiry_description,
+                "company_name": self.config.MAIL_FROM_NAME,
+                "validity_duration_desc": self.config.otp_expiry_description,
             }
 
             await send_email_with_template(
@@ -99,6 +110,7 @@ class AuthService:
                 recipients=[recipient_email],
                 template_name=AuthConstants.OTP_EMAIL_TEMPLATE,
                 template_body=template_body,
+                mail_config=self.system_mail_config,
             )
             logger.info(
                 "OTP email sent successfully",
@@ -137,13 +149,8 @@ class AuthService:
 
         logger.debug("Starting authentication process", extra={"email": email})
 
-        # Step 1: Verify user exists
+        # Step 1: Get User
         user = get_user_by_email(self.db, email)
-        if not user:
-            logger.warning(
-                "Authentication failed: user not found", extra={"email": email}
-            )
-            raise InvalidCredentialsError()
 
         # Step 2: Validate password
         if not verify_password(password, user.hashed_password):
@@ -265,11 +272,16 @@ class AuthService:
         logger.info(f"User '{login_request.email}' verified successfully.")
 
         # Step 4a: Generate new access and refresh tokens
-        access_token, refresh_token = create_tokens(user.email, user.id)
+        access_token, refresh_token = create_tokens(
+            user.email, user.id, self.config
+        )
 
-        # Step 4b: Store refresh token in Redis for this device
-        await store_refresh_token(
-            self.redis_client, user.id, login_request.device_id, refresh_token
+        # Step 4b: Store refresh token in Redis for this device, as per device and per email = only one session
+        await set_cache_with_expiry(
+            redis_client=self.redis_client,
+            key=f"refresh_token:{user.id}:{login_request.device_id}",
+            value=refresh_token,
+            expiry_duration=self.config.refresh_token_expire_delta,
         )
 
         logger.info(f"Issued new tokens for user '{user.email}'")
@@ -309,23 +321,16 @@ class AuthService:
         logger.debug("Starting token refresh process")
 
         # Step 1: Verify token signature and expiry
-        payload = verify_token(refresh_token, "refresh")
-        if not payload:
-            logger.warning("Invalid or expired refresh token provided")
-            raise InvalidTokenError()
-
-        # Step 2: Extract and validate user information
-        email = payload.get("sub")
-        user_id = payload.get("id")
-
-        if not all([email, user_id]):
-            logger.error("Malformed token payload - missing required claims")
-            raise InvalidTokenError()
+        email, user_id = verify_token(
+            refresh_token, AuthConstants.REFRESH_TOKEN_TYPE, self.config
+        )
 
         # Step 3: Validate against stored token
         device_id = refresh_token_request.device_id
-        redis_key = f"refresh_token:{user_id}:{device_id}"
-        stored_token = await self.redis_client.get(redis_key)
+        stored_token = await get_cache_value(
+            redis_client=self.redis_client,
+            key=f"refresh_token:{user_id}:{device_id}",
+        )
 
         if stored_token != refresh_token:
             logger.warning(
@@ -336,9 +341,14 @@ class AuthService:
         logger.info(f"Valid refresh token for user {email}")
 
         # Step 4: Generate new tokens
-        new_access_token, new_refresh_token = create_tokens(email, user_id)
-        await store_refresh_token(
-            self.redis_client, user_id, device_id, new_refresh_token
+        new_access_token, new_refresh_token = create_tokens(
+            email, user_id, self.config
+        )
+        await set_cache_with_expiry(
+            redis_client=self.redis_client,
+            key=f"refresh_token:{user_id}:{device_id}",
+            value=new_refresh_token,
+            expiry_duration=self.config.refresh_token_expire_delta,
         )
 
         logger.info(f"Successfully refreshed tokens for user {email}")
@@ -379,9 +389,6 @@ class AuthService:
 
         # Step 1: Validate user exists and needs verification
         user = get_user_by_email(self.db, verify_otp_request.email)
-        if not user:
-            logger.warning(f"User not found: {verify_otp_request.email}")
-            raise UserNotFoundError()
 
         if user.is_verified:
             logger.warning(
@@ -391,7 +398,9 @@ class AuthService:
 
         # Step 2: Check OTP validity
         otp_key = f"otp:{verify_otp_request.email}"
-        stored_otp = await self.redis_client.get(otp_key)
+        stored_otp = await get_cache_value(
+            redis_client=self.redis_client, key=otp_key
+        )
 
         if not stored_otp or stored_otp != verify_otp_request.otp:
             logger.warning(
@@ -413,13 +422,16 @@ class AuthService:
             )
 
             # Step 4: Generate authentication tokens
-            access_token, refresh_token = create_tokens(user.email, user.id)
-            await store_refresh_token(
-                self.redis_client,
-                user.id,
-                verify_otp_request.device_id,
-                refresh_token,
+            access_token, refresh_token = create_tokens(
+                user.email, user.id, self.config
             )
+            await set_cache_with_expiry(
+                redis_client=self.redis_client,
+                key=f"refresh_token:{user.id}:{verify_otp_request.device_id}",
+                value=refresh_token,
+                expiry_duration=self.config.refresh_token_expire_delta,
+            )
+
             logger.info(
                 f"Authentication tokens generated for user: {verify_otp_request.email}"
             )
@@ -432,4 +444,4 @@ class AuthService:
         except Exception as e:
             logger.exception(f"Error during OTP verification: {str(e)}")
             self.db.rollback()
-            raise BaseAppException() from e
+            raise UnknowError() from e

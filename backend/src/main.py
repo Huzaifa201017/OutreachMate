@@ -1,36 +1,35 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from src.redis_client import close_redis, start_redis
 from src.exceptions import BaseAppException
 from src.logger import setup_logging
-import redis.asyncio as redis
 from src.auth.router import router
+from src.config import AppConfig
+import logging
 
 # models.Base.metadata.create_all(bind=engine)
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app_config = AppConfig()
 
     # Code to run on application startup
-    print("Application is starting up...")
-    app.state.redis = redis.Redis(
-        host="localhost",
-        port=6379,
-        db=0,
-        decode_responses=True,
-    )
+    logger.info("Initializing Redis ...")
+    await start_redis(app, app_config)
 
     yield  # The application will handle requests here
 
     # Code to run on application shutdown
-    print("Application is shutting down...")
-    await app.state.redis.close()
+    logger.info("Closing Redis")
+    await close_redis(app)
 
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(router)
-setup_logging()
 
 
 # Global exception handler

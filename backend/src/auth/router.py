@@ -10,8 +10,8 @@ from .schemas import (
     VerifyOTPResponse,
 )
 from .service import AuthService
-from src.dependencies import get_auth_service, get_current_user
-from src.dependencies import oauth2_bearer
+from src.auth.dependencies import get_auth_service, get_current_user
+from src.auth.dependencies import oauth2_bearer
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
