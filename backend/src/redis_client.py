@@ -1,16 +1,16 @@
-from fastapi import FastAPI
 import redis.asyncio as redis
-from src.config import AppConfig
+from fastapi import FastAPI
+from src.settings import Settings
 
 
-async def start_redis(app: FastAPI, app_config: AppConfig):
+async def start_redis(app: FastAPI, settings: Settings) -> None:
     app.state.redis = await redis.Redis(
-        host=app_config.REDIS_HOST,
-        port=app_config.REDIS_PORT,
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
         db=0,
         decode_responses=True,
     )
 
 
-async def close_redis(app: FastAPI):
+async def close_redis(app: FastAPI) -> None:
     await app.state.redis.close()

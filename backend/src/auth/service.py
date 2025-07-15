@@ -1,10 +1,11 @@
 import logging
+
 from fastapi import BackgroundTasks
 from fastapi_mail import ConnectionConfig
 from pydantic import EmailStr
+from redis.asyncio.client import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-
 from src.auth.constants import AuthConstants
 from src.exceptions import (
     InvalidCredentialsError,
@@ -14,6 +15,9 @@ from src.exceptions import (
     UserAlreadyExistsError,
     UserAlreadyVerifiedError,
 )
+from src.models import Users
+from src.settings import Settings
+
 from .schemas import (
     CreateUserRequest,
     LoginRequest,
@@ -23,7 +27,6 @@ from .schemas import (
     VerifyOTPRequest,
     VerifyOTPResponse,
 )
-from redis.asyncio.client import Redis
 from .utils import (
     create_tokens,
     generate_otp,
@@ -35,8 +38,6 @@ from .utils import (
     verify_password,
     verify_token,
 )
-from src.models import Users
-from src.config import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,12 @@ class AuthService:
         self,
         db: Session,
         redis_client: Redis,
-        config: AppConfig,
+        settings: Settings,
         system_mail_config: ConnectionConfig,
     ):
         self.db = db
         self.redis_client = redis_client
-        self.config = config
+        self.settings = settings
         self.system_mail_config = system_mail_config
 
     async def _send_otp_email(
@@ -90,10 +91,10 @@ class AuthService:
                 redis_client=self.redis_client,
                 key=f"otp:{recipient_email}",
                 value=otp,
-                expiry_duration=self.config.otp_expire_delta,
+                expiry_duration=self.settings.otp_expire_delta,
             )
             logger.debug(
-                f"Stored OTP in Redis with expiration: {self.config.otp_expire_delta}s",
+                f"Stored OTP in Redis with expiration: {self.settings.otp_expire_delta}s",
                 extra={"user_email": recipient_email},
             )
 
@@ -101,8 +102,8 @@ class AuthService:
             template_body = {
                 "name": recipient_name,
                 "otp": otp,
-                "company_name": self.config.MAIL_FROM_NAME,
-                "validity_duration_desc": self.config.otp_expiry_description,
+                "company_name": self.settings.MAIL_FROM_NAME,
+                "validity_duration_desc": self.settings.otp_expiry_description,
             }
 
             await send_email_with_template(
@@ -273,7 +274,7 @@ class AuthService:
 
         # Step 4a: Generate new access and refresh tokens
         access_token, refresh_token = create_tokens(
-            user.email, user.id, self.config
+            user.email, user.id, self.settings
         )
 
         # Step 4b: Store refresh token in Redis for this device, as per device and per email = only one session
@@ -281,7 +282,7 @@ class AuthService:
             redis_client=self.redis_client,
             key=f"refresh_token:{user.id}:{login_request.device_id}",
             value=refresh_token,
-            expiry_duration=self.config.refresh_token_expire_delta,
+            expiry_duration=self.settings.refresh_token_expire_delta,
         )
 
         logger.info(f"Issued new tokens for user '{user.email}'")
@@ -322,7 +323,10 @@ class AuthService:
 
         # Step 1: Verify token signature and expiry
         email, user_id = verify_token(
-            refresh_token, AuthConstants.REFRESH_TOKEN_TYPE, self.config
+            refresh_token,
+            AuthConstants.REFRESH_TOKEN_TYPE,
+            self.settings.SECRET_KEY,
+            self.settings.ALGORITHM,
         )
 
         # Step 3: Validate against stored token
@@ -342,13 +346,13 @@ class AuthService:
 
         # Step 4: Generate new tokens
         new_access_token, new_refresh_token = create_tokens(
-            email, user_id, self.config
+            email, user_id, self.settings
         )
         await set_cache_with_expiry(
             redis_client=self.redis_client,
             key=f"refresh_token:{user_id}:{device_id}",
             value=new_refresh_token,
-            expiry_duration=self.config.refresh_token_expire_delta,
+            expiry_duration=self.settings.refresh_token_expire_delta,
         )
 
         logger.info(f"Successfully refreshed tokens for user {email}")
@@ -423,13 +427,13 @@ class AuthService:
 
             # Step 4: Generate authentication tokens
             access_token, refresh_token = create_tokens(
-                user.email, user.id, self.config
+                user.email, user.id, self.settings
             )
             await set_cache_with_expiry(
                 redis_client=self.redis_client,
                 key=f"refresh_token:{user.id}:{verify_otp_request.device_id}",
                 value=refresh_token,
-                expiry_duration=self.config.refresh_token_expire_delta,
+                expiry_duration=self.settings.refresh_token_expire_delta,
             )
 
             logger.info(

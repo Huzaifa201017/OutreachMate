@@ -1,4 +1,5 @@
 from typing import Optional
+
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -39,10 +40,8 @@ class LoginResponse(TokenResponse):
 
 
 class RefreshTokenResponse(TokenResponse):
-    access_token: str
-    refresh_token: str
+    pass
 
 
 class VerifyOTPResponse(TokenResponse):
-    access_token: str
-    refresh_token: str
+    pass

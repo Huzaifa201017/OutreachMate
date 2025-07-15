@@ -1,16 +1,18 @@
-from datetime import datetime, timedelta, timezone
 import logging
 import random
 import string
-from typing import Dict, List, Optional, Union
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Union
+
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
+from jose import ExpiredSignatureError, JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import EmailStr
-from src.config import AppConfig
+from sqlalchemy.orm import Session
 from src.auth.constants import AuthConstants
-from src.models import Users
 from src.exceptions import InvalidTokenError, UserNotFoundError
-from jose import ExpiredSignatureError, JWTError, jwt
+from src.models import Users
+from src.settings import Settings
 
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 logger = logging.getLogger(__name__)
@@ -29,8 +31,9 @@ def create_token(
     user_id: int,
     expires_delta: timedelta,
     token_type: str,
-    app_config: AppConfig,
-):
+    secret_key: str,
+    algorithm: str,
+) -> str:
     """
     Generates a JWT access token with an expiration time.
     """
@@ -38,29 +41,20 @@ def create_token(
     expires = datetime.now(timezone.utc) + expires_delta
     encode.update({"exp": expires, "token_type": token_type})
 
-    return jwt.encode(
-        encode, app_config.SECRET_KEY, algorithm=app_config.ALGORITHM
-    )
+    return jwt.encode(encode, secret_key, algorithm)
 
 
 def verify_token(
-    token: str, token_type: str, app_config: AppConfig
-) -> Optional[dict]:
+    token: str, token_type: str, secret_key: str, algorithm: str
+) -> tuple[str, int]:
     """
     Verify and decode a JWT token
-
-    Args:
-        token: JWT token string
-        token_type: Expected token type ('access' or 'refresh')
-
-    Returns:
-        Token payload if valid, None otherwise
     """
     try:
         payload = jwt.decode(
             token,
-            app_config.SECRET_KEY,
-            algorithms=[app_config.ALGORITHM],
+            secret_key,
+            algorithm,
         )
 
         # Verify token type
@@ -74,11 +68,11 @@ def verify_token(
         email = payload.get("sub")
         user_id = payload.get("id")
 
-        if not all([email, user_id]):
+        if email is None or user_id is None:
             logger.error("Malformed token payload - missing required claims")
             raise InvalidTokenError()
 
-        return email, user_id
+        return str(email), int(user_id)
 
     except ExpiredSignatureError as e:
         logger.exception(f"Token has expired")
@@ -89,7 +83,7 @@ def verify_token(
         raise InvalidTokenError() from e
 
 
-def generate_otp(length=6):
+def generate_otp(length=6) -> EmailStr:
     return "".join(random.choices(string.digits, k=length))
 
 
@@ -99,7 +93,7 @@ async def send_email_with_template(
     template_name: str,
     template_body: Dict,
     mail_config: ConnectionConfig,
-):
+) -> None:
     """
     Sends an email using a Jinja2 template via FastAPI-Mail.
     """
@@ -118,30 +112,34 @@ async def send_email_with_template(
     logger.info(f"Email sent to {recipients} with template '{template_name}'")
 
 
-def create_tokens(email: str, user_id: int, app_config: AppConfig):
+def create_tokens(
+    email: str, user_id: int, settings: Settings
+) -> tuple[str, str]:
     """
     Utility to create access and refresh tokens.
     """
     access_token = create_token(
         email=email,
         user_id=user_id,
-        expires_delta=app_config.access_token_expire_delta,
+        expires_delta=settings.access_token_expire_delta,
         token_type=AuthConstants.ACCESS_TOKEN_TYPE,
-        app_config=app_config,
+        secret_key=settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
     )
     refresh_token = create_token(
         email=email,
         user_id=user_id,
-        expires_delta=app_config.refresh_token_expire_delta,
+        expires_delta=settings.refresh_token_expire_delta,
         token_type=AuthConstants.REFRESH_TOKEN_TYPE,
-        app_config=app_config,
+        secret_key=settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
     )
     return access_token, refresh_token
 
 
 async def set_cache_with_expiry(
     redis_client, key: str, value: str, expiry_duration: timedelta
-):
+) -> None:
     """
     Utility to store key:value in the cache.
     """
@@ -152,14 +150,14 @@ async def set_cache_with_expiry(
     )
 
 
-async def get_cache_value(redis_client, key: str):
+async def get_cache_value(redis_client, key: str) -> Any:
     """
     Utility to get cache value by key.
     """
     return await redis_client.get(key)
 
 
-def get_user_by_email(db, email: str):
+def get_user_by_email(db: Session, email: str) -> Users:
     """
     Fetch user by email from the database.
     """

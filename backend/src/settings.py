@@ -1,5 +1,6 @@
 from datetime import timedelta
-from fastapi_mail import ConnectionConfig
+
+from pydantic import DirectoryPath, SecretStr
 from pydantic_settings import BaseSettings
 
 
@@ -23,7 +24,7 @@ def get_timedelta_from_string(duration: str) -> timedelta:
             raise ValueError("Invalid time unit")
 
 
-class AppConfig(BaseSettings):
+class Settings(BaseSettings):
     DB_HOST: str
     DB_NAME: str
     DB_USER: str
@@ -37,7 +38,7 @@ class AppConfig(BaseSettings):
 
     # Mail
     MAIL_USERNAME: str
-    MAIL_PASSWORD: str
+    MAIL_PASSWORD: SecretStr
     MAIL_FROM: str
     MAIL_FROM_NAME: str
     MAIL_SERVER: str
@@ -46,7 +47,7 @@ class AppConfig(BaseSettings):
     MAIL_SSL_TLS: bool
     USE_CREDENTIALS: bool
     VALIDATE_CERTS: bool
-    TEMPLATE_FOLDER: str
+    TEMPLATE_FOLDER: DirectoryPath
     MAIL_DEBUG: int
 
     # Redis
