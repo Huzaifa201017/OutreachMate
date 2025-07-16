@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 
 from pydantic import DirectoryPath, SecretStr
@@ -35,6 +36,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_DURATION: str
     REFRESH_TOKEN_EXPIRE_DURATION: str
     OTP_EXPIRY: str
+    LOG_LEVEL: str = "INFO"
 
     # Mail
     MAIL_USERNAME: str
@@ -69,6 +71,14 @@ class Settings(BaseSettings):
     @property
     def otp_expire_delta(self) -> timedelta:
         return get_timedelta_from_string(self.OTP_EXPIRY)
+
+    @property
+    def log_level_enum(self) -> int:
+        """
+        Returns the logging level as an integer enum, e.g., logging.DEBUG, logging.INFO etc.
+        Falls back to logging.INFO if the value is invalid.
+        """
+        return getattr(logging, self.LOG_LEVEL.upper(), logging.INFO)
 
     @property
     def otp_expiry_description(self) -> str:

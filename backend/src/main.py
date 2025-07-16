@@ -11,13 +11,14 @@ from src.redis_client import close_redis, start_redis
 
 # models.Base.metadata.create_all(bind=engine)
 
-setup_logging()
+settings = get_settings()
+setup_logging(settings)
+
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = get_settings()
 
     # Code to run on application startup
     logger.info("Initializing Redis ...")
