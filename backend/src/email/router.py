@@ -43,9 +43,10 @@ async def gmail_oauth_callback(
 async def send_email(
     request: SendEmailRequest,
     email_service: Annotated[EmailService, Depends(get_email_service)],
-    _: Annotated[dict, Depends(get_current_user)],
+    user: Annotated[dict, Depends(get_current_user)],
 ):
     result = await email_service.send_email(
+        user.get("id"),
         request.account_id,
         request.to_email,
         request.subject,

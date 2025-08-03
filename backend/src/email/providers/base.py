@@ -28,7 +28,7 @@ class BaseEmailProvider(ABC):
 
     @abstractmethod
     async def send_email(
-        self, account_id: str, to: str, subject: str, body: str
+        self, account_id: str, to: str, sender: str, subject: str, body: str
     ) -> Dict[str, Any]:
         """Send email using stored credentials"""
         pass

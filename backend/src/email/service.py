@@ -1,10 +1,15 @@
+import logging
+
 from fastapi import Request
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 from src.email.providers.provider_factory import ProviderFactory
+from src.exceptions import AccountNotFoundError, EmailSendError
 from src.models import UserEmailAccount
 from src.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class EmailService:
@@ -33,24 +38,72 @@ class EmailService:
         return await email_provider.handle_callback(request)
 
     async def send_email(
-        self, account_id: str, to: str, subject: str, body: str
+        self, user_id: str, account_id: str, to: str, subject: str, body: str
     ) -> dict:
+        """
+        Send email using specified email account
 
-        # Get account to determine provider
-        account = (
-            self.db.query(UserEmailAccount)
-            .filter(UserEmailAccount.id == account_id)
-            .first()
-        )
+        Args:
+            user_id: User identifier for authorization
+            account_id: Email account identifier
+            to: Recipient email address
+            subject: Email subject
+            body: Email body content
 
-        if not account:
-            raise ValueError("Email account not found")
+        Returns:
+            Dictionary containing success status and email details
 
-        email_provider = self.provider_factory.get_provider(
-            str(account.provider),
-            redis_client=self.redis_client,
-            settings=self.settings,
-            db=self.db,
-        )
+        Raises:
+            AccountNotFoundError: If email account is not found or unauthorized
+            EmailSendError: If email sending fails
+        """
+        try:
+            logger.info(
+                f"Sending email from account: {account_id} for user: {user_id} to: {to}"
+            )
 
-        return await email_provider.send_email(account_id, to, subject, body)
+            # Step 1: Retrieve and validate email account with authorization check
+            account = (
+                self.db.query(UserEmailAccount)
+                .filter(
+                    UserEmailAccount.id == account_id,
+                    UserEmailAccount.user_id == user_id,
+                )
+                .first()
+            )
+
+            if not account:
+                logger.warning(
+                    f"Email account not found or unauthorized: {account_id} for user: {user_id}"
+                )
+                raise AccountNotFoundError(account_id)
+
+            # Step 2: Get appropriate email provider instance
+            email_provider = self.provider_factory.get_provider(
+                str(account.provider),
+                redis_client=self.redis_client,
+                settings=self.settings,
+                db=self.db,
+            )
+
+            # Step 3: Prepare sender information from account data
+            # TODO: Make it dynamic
+            sender = "Huzaifa Farooqi <huzaifa.farooqi.hf@gmail.com>"
+
+            # Step 4: Send email through provider
+            result = await email_provider.send_email(
+                account_id, to, sender, subject, body
+            )
+
+            logger.info(f"Email sent successfully from account: {account_id} to: {to}")
+
+            return result
+
+        except AccountNotFoundError:
+            # Re-raise known exceptions without wrapping
+            raise
+        except Exception as e:
+            logger.exception(
+                f"Failed to send email from account: {account_id} to: {to}"
+            )
+            raise EmailSendError(to) from e

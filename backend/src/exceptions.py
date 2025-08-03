@@ -66,17 +66,53 @@ class InvalidOAuthStateError(BaseAppException):
         super().__init__(message, status_code=status.HTTP_403_FORBIDDEN)
 
 
-class EmailNotFoundError(BaseAppException):
-    """Raised when the user's email could not be retrieved from the OAuth provider."""
+class InvalidOAuthStateException(BaseAppException):
+    def __init__(self, state: str = None):
+        message = f"Invalid OAuth state: {state}" if state else "Invalid OAuth state"
+        super().__init__(message, status.HTTP_400_BAD_REQUEST)
 
-    def __init__(
-        self, message: str = "Email address not found in OAuth user info response"
-    ):
-        super().__init__(message, status_code=400)
+
+class EmailNotFoundError(BaseAppException):
+    def __init__(self):
+        super().__init__(
+            "Unable to retrieve user email from OAuth provider",
+            status.HTTP_400_BAD_REQUEST,
+        )
 
 
 class AccountNotFoundError(BaseAppException):
-    """Raised when the user's email could not be retrieved from the OAuth provider."""
+    def __init__(self, account_id: str):
+        super().__init__(
+            f"Email account not found: {account_id}", status.HTTP_404_NOT_FOUND
+        )
 
-    def __init__(self, message: str = "Email account not found"):
-        super().__init__(message, status_code=404)
+
+class OAuthInitiationError(BaseAppException):
+    def __init__(self, provider: str):
+        super().__init__(
+            f"Failed to initiate OAuth flow for {provider}",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+class OAuthCallbackError(BaseAppException):
+    def __init__(self, provider: str):
+        super().__init__(
+            f"Failed to handle OAuth callback for {provider}",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+class EmailSendError(BaseAppException):
+    def __init__(self, recipient: str):
+        super().__init__(
+            f"Failed to send email to {recipient}",
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+class CredentialsRefreshError(BaseAppException):
+    def __init__(self):
+        super().__init__(
+            "Failed to refresh OAuth credentials", status.HTTP_401_UNAUTHORIZED
+        )
