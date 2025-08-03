@@ -2,14 +2,14 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends
+from starlette import status
+
 from src.auth.dependencies import (
     get_auth_service,
     get_current_user,
     oauth2_bearer,
 )
 from src.auth.schemas import LoginResponse, RefreshTokenResponse
-from starlette import status
-
 from .schemas import (
     CreateUserRequest,
     LoginRequest,

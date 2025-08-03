@@ -57,3 +57,19 @@ class InvalidOTPError(BaseAppException):
 
     def __init__(self, message: str = "Invalid or expired OTP"):
         super().__init__(message, status_code=status.HTTP_401_UNAUTHORIZED)
+
+
+class InvalidOAuthStateError(BaseAppException):
+    """Raised when the provided OAuth state is invalid."""
+
+    def __init__(self, message: str = "Invalid OAuth2 State"):
+        super().__init__(message, status_code=status.HTTP_403_FORBIDDEN)
+
+
+class EmailNotFoundError(BaseAppException):
+    """Raised when the user's email could not be retrieved from the OAuth provider."""
+
+    def __init__(
+        self, message: str = "Email address not found in OAuth user info response"
+    ):
+        super().__init__(message, status_code=400)

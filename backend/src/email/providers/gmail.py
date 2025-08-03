@@ -27,12 +27,12 @@ class GmailProvider(BaseEmailProvider):
         super().__init__(redis_client, settings, db)
 
     async def initiate_oauth(self, user_id: str) -> dict:
-        """Initiate Gmail OAuth flow"""
+
         try:
 
             # Create OAuth flow
             flow = Flow.from_client_secrets_file(
-                "client_secret.json", scopes=self.SCOPES
+                self.settings.GOOGLE_CLIENT_SECRET_FILE, scopes=self.SCOPES
             )
             flow.redirect_uri = self.settings.REDIRECT_URI
 
@@ -43,7 +43,9 @@ class GmailProvider(BaseEmailProvider):
                 prompt="consent",
             )
 
-            await self.redis_client.setex(f"oauth_state:{state}", 3600, user_id)
+            await self.redis_client.setex(
+                f"oauth_state:{state}", self.settings.oauth2_state_expiry_delta, user_id
+            )
 
             return {
                 "auth_url": auth_url,
@@ -56,7 +58,7 @@ class GmailProvider(BaseEmailProvider):
             raise UnknowError from e
 
     async def handle_callback(self, request: Request) -> dict:
-        """Handle OAuth callback from Google"""
+
         try:
             state = request.query_params.get("state")
 
@@ -71,7 +73,7 @@ class GmailProvider(BaseEmailProvider):
 
             # Exchange code for tokens
             flow = Flow.from_client_secrets_file(
-                "client_secret.json", scopes=self.SCOPES, state=state
+                self.settings.GOOGLE_CLIENT_SECRET_FILE, scopes=self.SCOPES, state=state
             )
             flow.redirect_uri = self.settings.REDIRECT_URI
 

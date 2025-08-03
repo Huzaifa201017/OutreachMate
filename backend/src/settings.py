@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DURATION: str
     OTP_EXPIRY: str
     LOG_LEVEL: str = "INFO"
+    REDIRECT_URI: str
+    GOOGLE_CLIENT_SECRET_FILE: str
+    OAUTH2_STATE_EXPIRY: str
 
     # Mail
     MAIL_USERNAME: str
@@ -111,5 +114,10 @@ class Settings(BaseSettings):
         singular, plural = unit_map[unit]
         return f"{value} {singular if value == 1 else plural}"
 
+    @property
+    def oauth2_state_expiry_delta(self) -> timedelta:
+        return get_timedelta_from_string(self.OAUTH2_STATE_EXPIRY)
+
     class Config:
         env_file = ".env"
+        extra = "ignore"

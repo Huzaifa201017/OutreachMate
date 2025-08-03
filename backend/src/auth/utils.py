@@ -2,13 +2,14 @@ import logging
 import random
 import string
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from jose import ExpiredSignatureError, JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
+
 from src.auth.constants import AuthConstants
 from src.exceptions import InvalidTokenError, UserNotFoundError
 from src.models import Users
@@ -83,7 +84,7 @@ def verify_token(
         raise InvalidTokenError() from e
 
 
-def generate_otp(length=6) -> EmailStr:
+def generate_otp(length=6) -> str:
     return "".join(random.choices(string.digits, k=length))
 
 
@@ -112,9 +113,7 @@ async def send_email_with_template(
     logger.info(f"Email sent to {recipients} with template '{template_name}'")
 
 
-def create_tokens(
-    email: str, user_id: int, settings: Settings
-) -> tuple[str, str]:
+def create_tokens(email: str, user_id: int, settings: Settings) -> tuple[str, str]:
     """
     Utility to create access and refresh tokens.
     """

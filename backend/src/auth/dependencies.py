@@ -1,12 +1,12 @@
 import logging
 from typing import Annotated, Any
 
-from fastapi import Depends
 from fastapi.params import Depends
 from fastapi.security import OAuth2PasswordBearer
 from fastapi_mail import ConnectionConfig
 from redis.asyncio.client import Redis
 from sqlalchemy.orm import Session
+
 from src.auth.constants import AuthConstants
 from src.auth.service import AuthService
 from src.auth.utils import verify_token
