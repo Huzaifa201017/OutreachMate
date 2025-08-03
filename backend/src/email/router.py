@@ -6,7 +6,11 @@ from fastapi.params import Depends
 
 from src.auth.dependencies import get_current_user
 from src.email.dependencies import get_email_service
-from src.email.schemas import OAuthInitResponse, OAuthCallbackResponse
+from src.email.schemas import (
+    OAuthInitResponse,
+    OAuthCallbackResponse,
+    SendEmailRequest,
+)
 from src.email.service import EmailService
 
 router = APIRouter(prefix="/email", tags=["email"])
@@ -28,8 +32,23 @@ async def initiate_gmail_oauth(
 @router.get("/auth/gmail/oauth2callback", response_model=OAuthCallbackResponse)
 async def gmail_oauth_callback(
     request: Request,
-    email_service: EmailService = Depends(get_email_service),
+    email_service: Annotated[EmailService, Depends(get_email_service)],
 ):
     """Handle Gmail OAuth callback"""
     result = await email_service.handle_oauth_callback(request, "gmail")
+    return result
+
+
+@router.post("/send")
+async def send_email(
+    request: SendEmailRequest,
+    email_service: Annotated[EmailService, Depends(get_email_service)],
+    _: Annotated[dict, Depends(get_current_user)],
+):
+    result = await email_service.send_email(
+        request.account_id,
+        request.to_email,
+        request.subject,
+        request.body,
+    )
     return result

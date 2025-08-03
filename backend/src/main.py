@@ -17,8 +17,11 @@ from src.redis_client import close_redis, start_redis
 env_vars = dotenv_values(".env")
 
 # Pick only OAuth2 related
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = env_vars["OAUTHLIB_INSECURE_TRANSPORT"]
-os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = env_vars["OAUTHLIB_RELAX_TOKEN_SCOPE"]
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = (
+    env_vars["OAUTHLIB_INSECURE_TRANSPORT"] or ""
+)
+
+os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = env_vars["OAUTHLIB_RELAX_TOKEN_SCOPE"] or ""
 
 
 # models.Base.metadata.create_all(bind=engine)

@@ -3,6 +3,7 @@ from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 from src.email.providers.provider_factory import ProviderFactory
+from src.models import UserEmailAccount
 from src.settings import Settings
 
 
@@ -30,3 +31,26 @@ class EmailService:
             provider, redis_client=self.redis_client, settings=self.settings, db=self.db
         )
         return await email_provider.handle_callback(request)
+
+    async def send_email(
+        self, account_id: str, to: str, subject: str, body: str
+    ) -> dict:
+
+        # Get account to determine provider
+        account = (
+            self.db.query(UserEmailAccount)
+            .filter(UserEmailAccount.id == account_id)
+            .first()
+        )
+
+        if not account:
+            raise ValueError("Email account not found")
+
+        email_provider = self.provider_factory.get_provider(
+            str(account.provider),
+            redis_client=self.redis_client,
+            settings=self.settings,
+            db=self.db,
+        )
+
+        return await email_provider.send_email(account_id, to, subject, body)

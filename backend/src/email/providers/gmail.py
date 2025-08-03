@@ -1,14 +1,23 @@
+import base64
 import logging
 import uuid
+from email.mime.text import MIMEText
 
 from fastapi import Request
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 from src.email.providers.base import BaseEmailProvider
-from src.exceptions import UnknowError, InvalidOAuthStateError, EmailNotFoundError
+from src.exceptions import (
+    UnknowError,
+    InvalidOAuthStateError,
+    EmailNotFoundError,
+    AccountNotFoundError,
+)
 from src.models import UserEmailAccount
 from src.settings import Settings
 
@@ -147,4 +156,74 @@ class GmailProvider(BaseEmailProvider):
             raise
         except Exception as e:
             logger.exception("Failed to handle OAuth callback", exc_info=True)
+            raise UnknowError from e
+
+    def _get_gmail_service(self, account_id):
+
+        account = (
+            self.db.query(UserEmailAccount)
+            .filter(UserEmailAccount.id == account_id)
+            .first()
+        )
+
+        if not account:
+            raise AccountNotFoundError()
+
+        # Decrypt credentials
+        credentials_dict = account.credentials
+
+        # Create credentials
+        credentials = Credentials(
+            token=credentials_dict["token"],
+            refresh_token=credentials_dict["refresh_token"],
+            token_uri=credentials_dict["token_uri"],
+            client_id=credentials_dict["client_id"],
+            client_secret=credentials_dict["client_secret"],
+            scopes=credentials_dict["granted_scopes"],
+        )
+
+        # Refresh if needed
+        if credentials.expired:
+            credentials.refresh(GoogleRequest())
+
+            # Update stored credentials
+            updated_credentials_dict = {
+                "token": credentials.token,
+                "refresh_token": credentials.refresh_token,
+                "token_uri": credentials.token_uri,
+                "client_id": credentials.client_id,
+                "client_secret": credentials.client_secret,
+                "scopes": credentials.scopes,
+            }
+
+            account.credentials = updated_credentials_dict
+            self.db.commit()
+
+        return build("gmail", "v1", credentials=credentials)
+
+    async def send_email(
+        self, account_id: str, to: str, subject: str, body: str
+    ) -> dict:
+
+        try:
+            service = self._get_gmail_service(account_id)
+
+            message = MIMEText(body)
+            message["to"] = to
+            message["subject"] = subject
+            message["from"] = "Huzaifa Farooqi <huzaifa.farooqi.hf@gmail.com>"
+
+            raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+            result = (
+                service.users()
+                .messages()
+                .send(userId="me", body={"raw": raw_message})
+                .execute()
+            )
+
+            return {"message": "Email sent successfully", "details": result}
+
+        except Exception as e:
+            logger.exception("Failed to send email", exc_info=True)
             raise UnknowError from e

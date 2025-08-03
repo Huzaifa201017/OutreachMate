@@ -73,3 +73,10 @@ class EmailNotFoundError(BaseAppException):
         self, message: str = "Email address not found in OAuth user info response"
     ):
         super().__init__(message, status_code=400)
+
+
+class AccountNotFoundError(BaseAppException):
+    """Raised when the user's email could not be retrieved from the OAuth provider."""
+
+    def __init__(self, message: str = "Email account not found"):
+        super().__init__(message, status_code=404)

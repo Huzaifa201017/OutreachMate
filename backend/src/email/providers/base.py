@@ -25,3 +25,10 @@ class BaseEmailProvider(ABC):
     async def handle_callback(self, request: Request) -> Dict[str, Any]:
         """Handle OAuth callback and store credentials"""
         pass
+
+    @abstractmethod
+    async def send_email(
+        self, account_id: str, to: str, subject: str, body: str
+    ) -> Dict[str, Any]:
+        """Send email using stored credentials"""
+        pass
