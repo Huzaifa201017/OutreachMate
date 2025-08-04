@@ -3,12 +3,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Request
 from fastapi.params import Depends
-
 from src.auth.dependencies import get_current_user
 from src.email.dependencies import get_email_service
 from src.email.schemas import (
-    OAuthInitResponse,
     OAuthCallbackResponse,
+    OAuthInitResponse,
     SendEmailRequest,
 )
 from src.email.service import EmailService
@@ -45,11 +44,6 @@ async def send_email(
     email_service: Annotated[EmailService, Depends(get_email_service)],
     user: Annotated[dict, Depends(get_current_user)],
 ):
-    result = await email_service.send_email(
-        user.get("id"),
-        request.account_id,
-        request.to_email,
-        request.subject,
-        request.body,
-    )
+
+    result = await email_service.send_email(user["id"], request)
     return result

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class OAuthInitResponse(BaseModel):
@@ -15,6 +15,7 @@ class OAuthCallbackResponse(BaseModel):
 
 class SendEmailRequest(BaseModel):
     account_id: str
-    to_email: str
+    to_email: EmailStr
     subject: str
     body: str
+    display_name: str

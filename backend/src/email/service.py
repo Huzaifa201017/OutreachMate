@@ -3,8 +3,8 @@ import logging
 from fastapi import Request
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
-
 from src.email.providers.provider_factory import ProviderFactory
+from src.email.schemas import SendEmailRequest
 from src.exceptions import AccountNotFoundError, EmailSendError
 from src.models import UserEmailAccount
 from src.settings import Settings
@@ -20,7 +20,9 @@ class EmailService:
         self.settings = settings
         self.db = db
 
-    async def initiate_oauth_flow(self, user_id: str, provider: str = "gmail") -> dict:
+    async def initiate_oauth_flow(
+        self, user_id: str, provider: str = "gmail"
+    ) -> dict:
         """Initiate OAuth flow for email provider"""
         email_provider = self.provider_factory.get_provider(
             provider,
@@ -30,15 +32,20 @@ class EmailService:
         )
         return await email_provider.initiate_oauth(user_id)
 
-    async def handle_oauth_callback(self, request: Request, provider: str) -> dict:
+    async def handle_oauth_callback(
+        self, request: Request, provider: str
+    ) -> dict:
         """Handle OAuth callback"""
         email_provider = self.provider_factory.get_provider(
-            provider, redis_client=self.redis_client, settings=self.settings, db=self.db
+            provider,
+            redis_client=self.redis_client,
+            settings=self.settings,
+            db=self.db,
         )
         return await email_provider.handle_callback(request)
 
     async def send_email(
-        self, user_id: str, account_id: str, to: str, subject: str, body: str
+        self, user_id: str, request: SendEmailRequest
     ) -> dict:
         """
         Send email using specified email account
@@ -57,16 +64,23 @@ class EmailService:
             AccountNotFoundError: If email account is not found or unauthorized
             EmailSendError: If email sending fails
         """
+
+        account_id = request.account_id
+        to_email = request.to_email
+        body = request.body
+        subject = request.subject
+        display_name = request.display_name
+
         try:
             logger.info(
-                f"Sending email from account: {account_id} for user: {user_id} to: {to}"
+                f"Sending email from account: {account_id} for user: {user_id} to: {to_email}"
             )
 
             # Step 1: Retrieve and validate email account with authorization check
             account = (
                 self.db.query(UserEmailAccount)
                 .filter(
-                    UserEmailAccount.id == account_id,
+                    UserEmailAccount.id == request.account_id,
                     UserEmailAccount.user_id == user_id,
                 )
                 .first()
@@ -87,15 +101,16 @@ class EmailService:
             )
 
             # Step 3: Prepare sender information from account data
-            # TODO: Make it dynamic
-            sender = "Huzaifa Farooqi <huzaifa.farooqi.hf@gmail.com>"
+            sender = f"{display_name} <{account.email}>"
 
             # Step 4: Send email through provider
             result = await email_provider.send_email(
-                account_id, to, sender, subject, body
+                account_id, to_email, sender, subject, body
             )
 
-            logger.info(f"Email sent successfully from account: {account_id} to: {to}")
+            logger.info(
+                f"Email sent successfully from account: {account_id} to: {to_email}"
+            )
 
             return result
 
@@ -104,6 +119,6 @@ class EmailService:
             raise
         except Exception as e:
             logger.exception(
-                f"Failed to send email from account: {account_id} to: {to}"
+                f"Failed to send email from account: {account_id} to: {to_email}"
             )
-            raise EmailSendError(to) from e
+            raise EmailSendError(to_email) from e
