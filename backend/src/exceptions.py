@@ -67,8 +67,10 @@ class InvalidOAuthStateError(BaseAppException):
 
 
 class InvalidOAuthStateException(BaseAppException):
-    def __init__(self, state: str = None):
-        message = f"Invalid OAuth state: {state}" if state else "Invalid OAuth state"
+    def __init__(self, state: str | None):
+        message = (
+            f"Invalid OAuth state: {state}" if state else "Invalid OAuth state"
+        )
         super().__init__(message, status.HTTP_400_BAD_REQUEST)
 
 

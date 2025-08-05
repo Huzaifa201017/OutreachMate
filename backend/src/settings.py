@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     REDIRECT_URI: str
     GOOGLE_CLIENT_SECRET_FILE: str
     OAUTH2_STATE_EXPIRY: str
+    GMAIL_PUBSUB_TOPIC: str
 
     # Mail
     MAIL_USERNAME: str

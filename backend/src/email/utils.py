@@ -1,18 +1,20 @@
 import base64
 import logging
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
-from typing import Dict, Any
+from typing import Any, Dict
 
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2.credentials import Credentials
-
 from src.exceptions import CredentialsRefreshError
+from src.models import UserEmailAccount
+
 from .constants import EmailConstants
 
 logger = logging.getLogger(__name__)
 
 
-def generate_oauth_state_key(state: str) -> str:
+def generate_oauth_state_key(state: str | None) -> str:
     """Generate Redis key for OAuth state storage"""
 
     return f"{EmailConstants.OAUTH_STATE_PREFIX}:{state}"
@@ -27,7 +29,9 @@ def credentials_to_dict(credentials: Credentials) -> Dict[str, Any]:
         "client_id": credentials.client_id,
         "client_secret": credentials.client_secret,
         "granted_scopes": (
-            list(credentials.granted_scopes) if credentials.granted_scopes else []
+            list(credentials.granted_scopes)
+            if credentials.granted_scopes
+            else []
         ),
     }
 
@@ -64,7 +68,9 @@ def refresh_credentials_if_needed(
 
     try:
         # Step 1: Refresh expired credentials
-        logger.info(f"Refreshing expired credentials for account: {account.id}")
+        logger.info(
+            f"Refreshing expired credentials for account: {account.id}"
+        )
         credentials.refresh(GoogleRequest())
 
         # Step 2: Update stored credentials in database
@@ -72,9 +78,60 @@ def refresh_credentials_if_needed(
         account.credentials = updated_credentials_dict
         db_session.commit()
 
-        logger.info(f"Successfully refreshed credentials for account: {account.id}")
+        logger.info(
+            f"Successfully refreshed credentials for account: {account.id}"
+        )
         return credentials
 
     except Exception as e:
-        logger.exception(f"Failed to refresh credentials for account: {account.id}")
+        logger.exception(
+            f"Failed to refresh credentials for account: {account.id}"
+        )
         raise CredentialsRefreshError() from e
+
+
+def setup_gmail_watch(service, account_id: str, db_session, pubsub_topic: str):
+    """Setup Gmail push notifications for account"""
+    try:
+        logger.info(f"Setting up Gmail watch for account: {account_id}")
+
+        # Step 1: Create watch request
+        watch_request = {"labelIds": ["INBOX"], "topicName": pubsub_topic}
+
+        # Step 2: Call Gmail watch API
+        result = (
+            service.users().watch(userId="me", body=watch_request).execute()
+        )
+
+        # Step 3: Update account with watch info
+        account = (
+            db_session.query(UserEmailAccount)
+            .filter(UserEmailAccount.id == account_id)
+            .first()
+        )
+
+        if account:
+
+            account.notification_config = {
+                "watch_history_id": result["historyId"],
+                "watch_expiration": (
+                    datetime.now(timezone.utc) + timedelta(days=7)
+                ).isoformat(),
+                "is_watch_active": True,
+                "watch_created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            db_session.commit()
+
+            logger.info(
+                f"Gmail watch setup successfully for account: {account_id}, historyId: {result['historyId']}"
+            )
+            return True
+        else:
+            logger.error(f"Account not found: {account_id}")
+            return False
+
+    except Exception as e:
+        logger.warning(
+            f"Failed to setup Gmail watch for account: {account_id}, error: {str(e)}"
+        )
+        return False

@@ -1,8 +1,7 @@
 from typing import List
 
-from sqlalchemy import Boolean, String, Column, ForeignKey, JSON, INT
+from sqlalchemy import INT, JSON, Boolean, Column, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
 from src.database import Base
 
 
@@ -29,7 +28,11 @@ class UserEmailAccount(Base):
     user_id = Column(INT, ForeignKey("Users.id"))
     email = Column(String, unique=True)
     provider = Column(String)  # 'gmail', 'outlook', etc.
-    credentials = Column(JSON)  # Encrypted tokens
+    credentials = Column(JSON)
+    is_credentials_valid = Column(Boolean, default=True)
+
+    # Optional: Only for providers that support push notifications
+    notification_config = Column(JSON, nullable=True)
 
     # Many-to-one: each account → one user
     user: Mapped["Users"] = relationship(back_populates="email_accounts")

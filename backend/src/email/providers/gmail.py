@@ -1,30 +1,30 @@
 import logging
 import uuid
-from typing import Dict, Any
+from typing import Any, Dict
 
 from fastapi import Request
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
-
 from src.email.constants import EmailConstants
 from src.email.providers.base import BaseEmailProvider
 from src.email.utils import (
-    generate_oauth_state_key,
-    credentials_to_dict,
-    refresh_credentials_if_needed,
-    dict_to_credentials,
     create_mime_message,
+    credentials_to_dict,
+    dict_to_credentials,
+    generate_oauth_state_key,
+    refresh_credentials_if_needed,
+    setup_gmail_watch,
 )
 from src.exceptions import (
-    EmailNotFoundError,
     AccountNotFoundError,
-    OAuthInitiationError,
-    OAuthCallbackError,
-    InvalidOAuthStateException,
     CredentialsRefreshError,
+    EmailNotFoundError,
     EmailSendError,
+    InvalidOAuthStateException,
+    OAuthCallbackError,
+    OAuthInitiationError,
 )
 from src.models import UserEmailAccount
 from src.settings import Settings
@@ -36,7 +36,7 @@ class GmailProvider(BaseEmailProvider):
 
     # TODO: Replace with constant enums
     SCOPES = [
-        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/userinfo.email",
         "openid",
     ]
@@ -90,7 +90,9 @@ class GmailProvider(BaseEmailProvider):
             }
 
         except Exception as e:
-            logger.exception(f"Failed to initiate Gmail OAuth flow for user: {user_id}")
+            logger.exception(
+                f"Failed to initiate Gmail OAuth flow for user: {user_id}"
+            )
             raise OAuthInitiationError(EmailConstants.GMAIL) from e
 
     async def handle_callback(self, request: Request) -> Dict[str, Any]:
@@ -122,11 +124,15 @@ class GmailProvider(BaseEmailProvider):
 
             # Step 2: Clean up state from Redis
             await self.redis_client.delete(state_key)
-            logger.info(f"OAuth state validated and cleaned up for user: {user_id}")
+            logger.info(
+                f"OAuth state validated and cleaned up for user: {user_id}"
+            )
 
             # Step 3: Exchange authorization code for tokens
             flow = Flow.from_client_secrets_file(
-                self.settings.GOOGLE_CLIENT_SECRET_FILE, scopes=self.SCOPES, state=state
+                self.settings.GOOGLE_CLIENT_SECRET_FILE,
+                scopes=self.SCOPES,
+                state=state,
             )
             flow.redirect_uri = self.settings.REDIRECT_URI
 
@@ -146,6 +152,34 @@ class GmailProvider(BaseEmailProvider):
             account = await self._create_or_update_account(
                 user_id, email, credentials_dict
             )
+
+            # Step 7: Setup Gmail watch for push notifications
+            try:
+                # Get Gmail service using the new credentials
+                service = build("gmail", "v1", credentials=credentials)
+
+                # Setup watch (don't fail the whole process if this fails)
+                watch_success = setup_gmail_watch(
+                    service,
+                    account["id"],
+                    self.db,
+                    self.settings.GMAIL_PUBSUB_TOPIC,
+                )
+
+                if watch_success:
+                    logger.info(
+                        f"Gmail watch setup successfully for account: {account['id']}"
+                    )
+                else:
+                    logger.warning(
+                        f"Gmail watch setup failed for account: {account['id']}"
+                    )
+
+            except Exception as e:
+                logger.warning(
+                    f"Failed to setup Gmail watch for account: {account['id']}, error: {str(e)}"
+                )
+                # Don't fail the whole callback process if watch setup fails
 
             logger.info(
                 f"Gmail account processed successfully for user: {user_id}, email: {email}"
@@ -186,7 +220,9 @@ class GmailProvider(BaseEmailProvider):
             email = user_info.get("email")
 
             if not email:
-                logger.warning(f"Unable to get email from user info: {user_info}")
+                logger.warning(
+                    f"Unable to get email from user info: {user_info}"
+                )
                 raise EmailNotFoundError()
 
             logger.info(f"Successfully retrieved user email: {email}")
@@ -216,14 +252,17 @@ class GmailProvider(BaseEmailProvider):
         existing_account = (
             self.db.query(UserEmailAccount)
             .filter(
-                UserEmailAccount.email == email, UserEmailAccount.user_id == user_id
+                UserEmailAccount.email == email,
+                UserEmailAccount.user_id == user_id,
             )
             .first()
         )
 
         if existing_account:
             # Step 2a: Update existing account
-            logger.info(f"Updating existing Gmail account: {existing_account.id}")
+            logger.info(
+                f"Updating existing Gmail account: {existing_account.id}"
+            )
             existing_account.credentials = credentials_dict
             self.db.commit()
 
@@ -279,10 +318,14 @@ class GmailProvider(BaseEmailProvider):
         credentials = dict_to_credentials(credentials_dict)
 
         # Step 3: Refresh credentials if expired
-        credentials = refresh_credentials_if_needed(credentials, account, self.db)
+        credentials = refresh_credentials_if_needed(
+            credentials, account, self.db
+        )
 
         # Step 4: Build and return Gmail service
-        logger.info(f"Successfully created Gmail service for account: {account_id}")
+        logger.info(
+            f"Successfully created Gmail service for account: {account_id}"
+        )
         return build("gmail", "v1", credentials=credentials)
 
     async def send_email(
