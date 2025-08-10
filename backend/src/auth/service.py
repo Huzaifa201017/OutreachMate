@@ -6,6 +6,7 @@ from pydantic import EmailStr
 from redis.asyncio.client import Redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
 from src.auth.constants import AuthConstants
 from src.exceptions import (
     InvalidCredentialsError,
@@ -17,7 +18,6 @@ from src.exceptions import (
 )
 from src.models import Users
 from src.settings import Settings
-
 from .schemas import (
     CreateUserRequest,
     LoginRequest,
@@ -249,9 +249,7 @@ class AuthService:
         """
 
         # Step 1: Authenticate user credentials against database
-        user = self._authenticate_user(
-            login_request.email, login_request.password
-        )
+        user = self._authenticate_user(login_request.email, login_request.password)
 
         # Step 2: Check if user has verified their email
         if not user.is_verified:
@@ -273,9 +271,7 @@ class AuthService:
         logger.info(f"User '{login_request.email}' verified successfully.")
 
         # Step 4a: Generate new access and refresh tokens
-        access_token, refresh_token = create_tokens(
-            user.email, user.id, self.settings
-        )
+        access_token, refresh_token = create_tokens(user.email, user.id, self.settings)
 
         # Step 4b: Store refresh token in Redis for this device, as per device and per email = only one session
         await set_cache_with_expiry(
@@ -387,29 +383,21 @@ class AuthService:
             InvalidOTPError: If OTP is invalid or expired
         """
 
-        logger.info(
-            f"Starting OTP verification for email: {verify_otp_request.email}"
-        )
+        logger.info(f"Starting OTP verification for email: {verify_otp_request.email}")
 
         # Step 1: Validate user exists and needs verification
         user = get_user_by_email(self.db, verify_otp_request.email)
 
         if user.is_verified:
-            logger.warning(
-                f"User already verified: {verify_otp_request.email}"
-            )
+            logger.warning(f"User already verified: {verify_otp_request.email}")
             raise UserAlreadyVerifiedError()
 
         # Step 2: Check OTP validity
         otp_key = f"otp:{verify_otp_request.email}"
-        stored_otp = await get_cache_value(
-            redis_client=self.redis_client, key=otp_key
-        )
+        stored_otp = await get_cache_value(redis_client=self.redis_client, key=otp_key)
 
         if not stored_otp or stored_otp != verify_otp_request.otp:
-            logger.warning(
-                f"Invalid OTP provided for user: {verify_otp_request.email}"
-            )
+            logger.warning(f"Invalid OTP provided for user: {verify_otp_request.email}")
             raise InvalidOTPError()
 
         try:
@@ -421,9 +409,7 @@ class AuthService:
 
             # Clean up the used OTP
             await self.redis_client.delete(otp_key)
-            logger.debug(
-                f"OTP deleted from Redis for user: {verify_otp_request.email}"
-            )
+            logger.debug(f"OTP deleted from Redis for user: {verify_otp_request.email}")
 
             # Step 4: Generate authentication tokens
             access_token, refresh_token = create_tokens(

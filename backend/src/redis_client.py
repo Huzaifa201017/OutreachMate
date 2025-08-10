@@ -1,5 +1,6 @@
 import redis.asyncio as redis
 from fastapi import FastAPI
+
 from src.settings import Settings
 
 

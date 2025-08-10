@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Request
 from fastapi.params import Depends
+
 from src.auth.dependencies import get_current_user
 from src.email.dependencies import get_email_service
 from src.email.schemas import (

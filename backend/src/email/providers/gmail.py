@@ -7,6 +7,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
+
 from src.email.constants import EmailConstants
 from src.email.providers.base import BaseEmailProvider
 from src.email.utils import (
@@ -90,9 +91,7 @@ class GmailProvider(BaseEmailProvider):
             }
 
         except Exception as e:
-            logger.exception(
-                f"Failed to initiate Gmail OAuth flow for user: {user_id}"
-            )
+            logger.exception(f"Failed to initiate Gmail OAuth flow for user: {user_id}")
             raise OAuthInitiationError(EmailConstants.GMAIL) from e
 
     async def handle_callback(self, request: Request) -> Dict[str, Any]:
@@ -124,9 +123,7 @@ class GmailProvider(BaseEmailProvider):
 
             # Step 2: Clean up state from Redis
             await self.redis_client.delete(state_key)
-            logger.info(
-                f"OAuth state validated and cleaned up for user: {user_id}"
-            )
+            logger.info(f"OAuth state validated and cleaned up for user: {user_id}")
 
             # Step 3: Exchange authorization code for tokens
             flow = Flow.from_client_secrets_file(
@@ -220,9 +217,7 @@ class GmailProvider(BaseEmailProvider):
             email = user_info.get("email")
 
             if not email:
-                logger.warning(
-                    f"Unable to get email from user info: {user_info}"
-                )
+                logger.warning(f"Unable to get email from user info: {user_info}")
                 raise EmailNotFoundError()
 
             logger.info(f"Successfully retrieved user email: {email}")
@@ -260,10 +255,9 @@ class GmailProvider(BaseEmailProvider):
 
         if existing_account:
             # Step 2a: Update existing account
-            logger.info(
-                f"Updating existing Gmail account: {existing_account.id}"
-            )
+            logger.info(f"Updating existing Gmail account: {existing_account.id}")
             existing_account.credentials = credentials_dict
+            existing_account.is_credentials_valid = True
             self.db.commit()
 
             return {"id": existing_account.id, "is_existing": True}
@@ -318,14 +312,10 @@ class GmailProvider(BaseEmailProvider):
         credentials = dict_to_credentials(credentials_dict)
 
         # Step 3: Refresh credentials if expired
-        credentials = refresh_credentials_if_needed(
-            credentials, account, self.db
-        )
+        credentials = refresh_credentials_if_needed(credentials, account, self.db)
 
         # Step 4: Build and return Gmail service
-        logger.info(
-            f"Successfully created Gmail service for account: {account_id}"
-        )
+        logger.info(f"Successfully created Gmail service for account: {account_id}")
         return build("gmail", "v1", credentials=credentials)
 
     async def send_email(

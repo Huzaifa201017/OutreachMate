@@ -1,7 +1,8 @@
 from typing import List
 
-from sqlalchemy import INT, JSON, Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import INT, JSON, Boolean, Column, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from src.database import Base
 
 

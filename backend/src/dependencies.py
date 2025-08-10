@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 from fastapi_mail import ConnectionConfig
 from redis.asyncio.client import Redis
+
 from src.settings import Settings
 
 

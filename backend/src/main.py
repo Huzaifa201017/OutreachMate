@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from dotenv import dotenv_values
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+
 from src.auth.router import router as auth_router
 from src.dependencies import get_settings
 from src.email.router import router as email_router
@@ -21,9 +22,7 @@ os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = (
     env_vars["OAUTHLIB_INSECURE_TRANSPORT"] or ""
 )
 
-os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = (
-    env_vars["OAUTHLIB_RELAX_TOKEN_SCOPE"] or ""
-)
+os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = env_vars["OAUTHLIB_RELAX_TOKEN_SCOPE"] or ""
 
 
 # models.Base.metadata.create_all(bind=engine)
@@ -57,6 +56,4 @@ app.include_router(webhook_router)
 # Global exception handler
 @app.exception_handler(BaseAppException)
 async def app_exception_handler(request, exc) -> JSONResponse:
-    return JSONResponse(
-        status_code=exc.status_code, content={"error": exc.message}
-    )
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.message})
