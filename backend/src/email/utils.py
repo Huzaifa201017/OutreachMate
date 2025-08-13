@@ -1,14 +1,15 @@
 import base64
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from typing import Any, Dict
 
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2.credentials import Credentials
-
 from src.exceptions import CredentialsRefreshError
-from src.models import UserEmailAccount
+from src.models import SentEmailTracking, UserEmailAccount
+
 from .constants import EmailConstants
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,9 @@ def credentials_to_dict(credentials: Credentials) -> Dict[str, Any]:
         "client_id": credentials.client_id,
         "client_secret": credentials.client_secret,
         "granted_scopes": (
-            list(credentials.granted_scopes) if credentials.granted_scopes else []
+            list(credentials.granted_scopes)
+            if credentials.granted_scopes
+            else []
         ),
     }
 
@@ -57,7 +60,7 @@ def create_mime_message(to: str, subject: str, body: str, sender: str) -> str:
 
 
 def refresh_credentials_if_needed(
-    credentials: Credentials, account:UserEmailAccount, db_session
+    credentials: Credentials, account: UserEmailAccount, db_session
 ) -> Credentials:
     """Refresh OAuth credentials if expired and update database"""
 
@@ -66,7 +69,9 @@ def refresh_credentials_if_needed(
 
     try:
         # Step 1: Refresh expired credentials
-        logger.info(f"Refreshing expired credentials for account: {account.id}")
+        logger.info(
+            f"Refreshing expired credentials for account: {account.id}"
+        )
         credentials.refresh(GoogleRequest())
 
         # Step 2: Update stored credentials in database
@@ -74,11 +79,15 @@ def refresh_credentials_if_needed(
         account.credentials = updated_credentials_dict
         db_session.commit()
 
-        logger.info(f"Successfully refreshed credentials for account: {account.id}")
+        logger.info(
+            f"Successfully refreshed credentials for account: {account.id}"
+        )
         return credentials
 
     except Exception as e:
-        logger.exception(f"Failed to refresh credentials for account: {account.id}")
+        logger.exception(
+            f"Failed to refresh credentials for account: {account.id}"
+        )
         account.is_credentials_valid = False
         db_session.commit()
         raise CredentialsRefreshError() from e
@@ -93,7 +102,9 @@ def setup_gmail_watch(service, account_id: str, db_session, pubsub_topic: str):
         watch_request = {"labelIds": ["INBOX"], "topicName": pubsub_topic}
 
         # Step 2: Call Gmail watch API
-        result = service.users().watch(userId="me", body=watch_request).execute()
+        result = (
+            service.users().watch(userId="me", body=watch_request).execute()
+        )
 
         # Step 3: Update account with watch info
         account = (
@@ -127,3 +138,37 @@ def setup_gmail_watch(service, account_id: str, db_session, pubsub_topic: str):
             f"Failed to setup Gmail watch for account: {account_id}, error: {str(e)}"
         )
         return False
+
+
+def track_sent_email(
+    account_id: str,
+    email_result: dict,
+    recipient: str,
+    subject: str,
+    db_session,
+):
+    """Track sent email for reply monitoring"""
+    try:
+        logger.info(f"Tracking sent email for account: {account_id}")
+
+        tracking = SentEmailTracking(
+            id=str(uuid.uuid4()),
+            account_id=account_id,
+            message_id=email_result["id"],
+            thread_id=email_result["threadId"],
+            recipient=recipient,
+            subject=subject,
+        )
+
+        db_session.add(tracking)
+        db_session.commit()
+
+        logger.info(
+            f"Email tracking created: {tracking.id}, thread_id: {email_result['threadId']}"
+        )
+        return tracking.id
+
+    except Exception as e:
+        logger.exception("Failed to track sent email")
+        # Don't fail email sending if tracking fails
+        return None

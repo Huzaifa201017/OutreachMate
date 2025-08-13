@@ -1,9 +1,12 @@
+import base64
+import json
 import logging
+from typing import cast
 
 from fastapi import Request
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
-
+from src.email.providers.gmail import GmailProvider
 from src.email.providers.provider_factory import ProviderFactory
 from src.email.schemas import SendEmailRequest
 from src.exceptions import AccountNotFoundError, EmailSendError
@@ -21,7 +24,9 @@ class EmailService:
         self.settings = settings
         self.db = db
 
-    async def initiate_oauth_flow(self, user_id: str, provider: str = "gmail") -> dict:
+    async def initiate_oauth_flow(
+        self, user_id: str, provider: str = "gmail"
+    ) -> dict:
         """Initiate OAuth flow for email provider"""
         email_provider = self.provider_factory.get_provider(
             provider,
@@ -31,7 +36,9 @@ class EmailService:
         )
         return await email_provider.initiate_oauth(user_id)
 
-    async def handle_oauth_callback(self, request: Request, provider: str) -> dict:
+    async def handle_oauth_callback(
+        self, request: Request, provider: str
+    ) -> dict:
         """Handle OAuth callback"""
         email_provider = self.provider_factory.get_provider(
             provider,
@@ -41,7 +48,9 @@ class EmailService:
         )
         return await email_provider.handle_callback(request)
 
-    async def send_email(self, user_id: str, request: SendEmailRequest) -> dict:
+    async def send_email(
+        self, user_id: str, request: SendEmailRequest
+    ) -> dict:
         """
         Send email using specified email account
 
@@ -117,3 +126,51 @@ class EmailService:
                 f"Failed to send email from account: {account_id} to: {to_email}"
             )
             raise EmailSendError(to_email) from e
+
+    async def handle_gmail_push_notification(self, request: Request) -> None:
+        """Handle Gmail push notifications for reply detection"""
+
+        logger.info("Received Gmail push notification")
+
+        # Step 1: Parse Pub/Sub message
+        body = await request.json()
+        message = body.get("message", {})
+        if not message:
+            logger.warning("Invalid push notification format")
+            return
+
+        # Step 2: Decode message data
+        message_data = base64.b64decode(message.get("data", "")).decode(
+            "utf-8"
+        )
+        notification_data = json.loads(message_data)
+
+        email_address = notification_data.get("emailAddress")
+        history_id = notification_data.get("historyId")
+
+        logger.info(
+            f"Processing notification for email: {email_address}, historyId: {history_id}"
+        )
+
+        # Step 3: Find account by email
+        account = (
+            self.db.query(UserEmailAccount)
+            .filter(UserEmailAccount.email == email_address)
+            .first()
+        )
+
+        if not account:
+            logger.warning(f"Account not found for email: {email_address}")
+            return
+
+        # Step 4: Process the notification for replies
+        email_provider: GmailProvider = cast(
+            GmailProvider,
+            self.provider_factory.get_provider(
+                str(account.provider),
+                redis_client=self.redis_client,
+                settings=self.settings,
+                db=self.db,
+            ),
+        )
+        await email_provider.process_gmail_notification(account, history_id)

@@ -1,13 +1,14 @@
 import logging
 import uuid
-from typing import Any, Dict
+from datetime import datetime
+from typing import Any, Dict, cast
 
 from fastapi import Request
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from redis.asyncio import Redis
-from sqlalchemy.orm import Session
-
+from sqlalchemy import Boolean
+from sqlalchemy.orm import Session, attributes
 from src.email.constants import EmailConstants
 from src.email.providers.base import BaseEmailProvider
 from src.email.utils import (
@@ -17,6 +18,7 @@ from src.email.utils import (
     generate_oauth_state_key,
     refresh_credentials_if_needed,
     setup_gmail_watch,
+    track_sent_email,
 )
 from src.exceptions import (
     AccountNotFoundError,
@@ -27,7 +29,7 @@ from src.exceptions import (
     OAuthCallbackError,
     OAuthInitiationError,
 )
-from src.models import UserEmailAccount
+from src.models import SentEmailTracking, UserEmailAccount
 from src.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -91,7 +93,9 @@ class GmailProvider(BaseEmailProvider):
             }
 
         except Exception as e:
-            logger.exception(f"Failed to initiate Gmail OAuth flow for user: {user_id}")
+            logger.exception(
+                f"Failed to initiate Gmail OAuth flow for user: {user_id}"
+            )
             raise OAuthInitiationError(EmailConstants.GMAIL) from e
 
     async def handle_callback(self, request: Request) -> Dict[str, Any]:
@@ -123,7 +127,9 @@ class GmailProvider(BaseEmailProvider):
 
             # Step 2: Clean up state from Redis
             await self.redis_client.delete(state_key)
-            logger.info(f"OAuth state validated and cleaned up for user: {user_id}")
+            logger.info(
+                f"OAuth state validated and cleaned up for user: {user_id}"
+            )
 
             # Step 3: Exchange authorization code for tokens
             flow = Flow.from_client_secrets_file(
@@ -217,7 +223,9 @@ class GmailProvider(BaseEmailProvider):
             email = user_info.get("email")
 
             if not email:
-                logger.warning(f"Unable to get email from user info: {user_info}")
+                logger.warning(
+                    f"Unable to get email from user info: {user_info}"
+                )
                 raise EmailNotFoundError()
 
             logger.info(f"Successfully retrieved user email: {email}")
@@ -255,7 +263,9 @@ class GmailProvider(BaseEmailProvider):
 
         if existing_account:
             # Step 2a: Update existing account
-            logger.info(f"Updating existing Gmail account: {existing_account.id}")
+            logger.info(
+                f"Updating existing Gmail account: {existing_account.id}"
+            )
             existing_account.credentials = credentials_dict
             existing_account.is_credentials_valid = True
             self.db.commit()
@@ -312,10 +322,14 @@ class GmailProvider(BaseEmailProvider):
         credentials = dict_to_credentials(credentials_dict)
 
         # Step 3: Refresh credentials if expired
-        credentials = refresh_credentials_if_needed(credentials, account, self.db)
+        credentials = refresh_credentials_if_needed(
+            credentials, account, self.db
+        )
 
         # Step 4: Build and return Gmail service
-        logger.info(f"Successfully created Gmail service for account: {account_id}")
+        logger.info(
+            f"Successfully created Gmail service for account: {account_id}"
+        )
         return build("gmail", "v1", credentials=credentials)
 
     async def send_email(
@@ -355,6 +369,9 @@ class GmailProvider(BaseEmailProvider):
                 .execute()
             )
 
+            # Step 5: Track sent email for reply monitoring
+            track_sent_email(account_id, result, to, subject, self.db)
+
             logger.info(
                 f"Email sent successfully from account: {account_id} to: {to}, message_id: {result.get('id')}"
             )
@@ -369,3 +386,102 @@ class GmailProvider(BaseEmailProvider):
                 f"Failed to send email from account: {account_id} to: {to}"
             )
             raise EmailSendError(to) from e
+
+    async def process_gmail_notification(
+        self, account: UserEmailAccount, history_id: str
+    ):
+        """Process Gmail notification and check for replies to our sent emails"""
+        try:
+
+            # TODO: Credentiasl are refreshing again n again for no reason: "Refreshing credentials due to a 401 response. Attempt 1/2."
+            logger.info(f"Processing notification for account: {account.id}")
+
+            # Step 1: Get Gmail service
+            service = self._get_gmail_service(account.id)
+
+            # Step 2: Get watch record to get last history_id
+            watch = (
+                self.db.query(UserEmailAccount)
+                .filter(
+                    UserEmailAccount.id == account.id,
+                    # cast(
+                    #     UserEmailAccount.notification_config["is_watch_active"],
+                    #     Boolean,
+                    # )
+                    # == True,
+                )
+                .first()
+            )
+
+            if not watch:
+                logger.warning(
+                    f"No active watch found for account: {account.id}"
+                )
+                return
+
+            # Step 3: Get history since last known history_id
+            try:
+                history_response = (
+                    service.users()
+                    .history()
+                    .list(
+                        userId="me",
+                        startHistoryId=watch.notification_config[
+                            "watch_history_id"
+                        ],
+                    )
+                    .execute()
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to get history for account: {account.id}, error: {str(e)}"
+                )
+                return
+
+            # Step 4: Process new messages in history
+            history_records = history_response.get("history", [])
+
+            for record in history_records:
+                # Check for new messages (potential replies)
+                messages_added = record.get("messagesAdded", [])
+
+                for msg_record in messages_added:
+                    thread_id = msg_record["message"]["threadId"]
+
+                    # Step 5: Check if this thread_id matches any of our sent emails
+                    sent_email = (
+                        self.db.query(SentEmailTracking)
+                        .filter(
+                            SentEmailTracking.account_id == account.id,
+                            SentEmailTracking.thread_id == thread_id,
+                            SentEmailTracking.is_replied == False,
+                        )
+                        .first()
+                    )
+
+                    if sent_email:
+                        # Step 6: This is a reply to our sent email!
+                        logger.info(
+                            f"Reply detected! Thread: {thread_id}, Original email: {sent_email.id}"
+                        )
+
+                        # Mark as replied
+                        sent_email.is_replied = True
+                        sent_email.replied_at = datetime.utcnow()
+                        self.db.commit()
+
+                        logger.info(
+                            f"Marked email as replied: {sent_email.id}"
+                        )
+
+            # Step 7: Update watch history_id
+            watch.notification_config["watch_history_id"] = history_id
+            attributes.flag_modified(watch, "notification_config")
+            self.db.commit()
+
+            logger.info(f"Processed notification for account: {account.id}")
+
+        except Exception as e:
+            logger.exception(
+                f"Failed to process notification for account: {account.id}"
+            )

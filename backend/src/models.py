@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List
 
 from sqlalchemy import INT, JSON, Boolean, Column, ForeignKey, String
@@ -37,3 +38,17 @@ class UserEmailAccount(Base):
 
     # Many-to-one: each account → one user
     user: Mapped["Users"] = relationship(back_populates="email_accounts")
+
+
+class SentEmailTracking(Base):
+    __tablename__ = "sent_email_tracking"
+
+    id = Column(String, primary_key=True)
+    account_id = Column(String, ForeignKey("email_accounts.id"))
+    message_id = Column(String, nullable=False)  # Gmail message ID
+    thread_id = Column(String, nullable=False)  # Gmail thread ID
+    recipient = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+    is_replied = Column(Boolean, default=False)
+    replied_at = Column(DateTime, nullable=True)
