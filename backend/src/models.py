@@ -1,9 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
-from sqlalchemy import INT, JSON, Boolean, Column, ForeignKey, String
+from sqlalchemy import INT, JSON, Boolean, Column, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
 from src.database import Base
 
 
@@ -26,15 +25,13 @@ class Users(Base):
 class UserEmailAccount(Base):
     __tablename__ = "email_accounts"
 
-    id = Column(String, primary_key=True)
-    user_id = Column(INT, ForeignKey("Users.id"))
-    email = Column(String, unique=True)
-    provider = Column(String)  # 'gmail', 'outlook', etc.
-    credentials = Column(JSON)
-    is_credentials_valid = Column(Boolean, default=True)
-
-    # Optional: Only for providers that support push notifications
-    notification_config = Column(JSON, nullable=True)
+    id: Mapped[str] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("Users.id"))
+    email: Mapped[str] = mapped_column(String, unique=True)
+    provider: Mapped[str] = mapped_column(String)  # 'gmail', 'outlook', etc.
+    credentials: Mapped[dict] = mapped_column(JSON)
+    is_credentials_valid: Mapped[bool] = mapped_column(Boolean, default=True)
+    notification_config: Mapped[dict] = mapped_column(JSON, nullable=True)
 
     # Many-to-one: each account → one user
     user: Mapped["Users"] = relationship(back_populates="email_accounts")
@@ -43,12 +40,18 @@ class UserEmailAccount(Base):
 class SentEmailTracking(Base):
     __tablename__ = "sent_email_tracking"
 
-    id = Column(String, primary_key=True)
-    account_id = Column(String, ForeignKey("email_accounts.id"))
-    message_id = Column(String, nullable=False)  # Gmail message ID
-    thread_id = Column(String, nullable=False)  # Gmail thread ID
-    recipient = Column(String, nullable=False)
-    subject = Column(String, nullable=False)
-    sent_at = Column(DateTime, default=datetime.utcnow)
-    is_replied = Column(Boolean, default=False)
-    replied_at = Column(DateTime, nullable=True)
+    id: Mapped[str] = mapped_column(primary_key=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("email_accounts.id"))
+    message_id: Mapped[str] = mapped_column(
+        String, nullable=False
+    )  # Gmail message ID
+    thread_id: Mapped[str] = mapped_column(
+        String, nullable=False
+    )  # Gmail thread ID
+    recipient: Mapped[str] = mapped_column(String, nullable=False)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    sent_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now(timezone.utc)
+    )
+    is_replied: Mapped[bool] = mapped_column(Boolean, default=False)
+    replied_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
