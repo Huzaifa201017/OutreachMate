@@ -1,9 +1,10 @@
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, Dict, cast
+from typing import Any, Dict, List, Optional, cast
 
 from fastapi import Request
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from redis.asyncio import Redis
@@ -146,7 +147,7 @@ class GmailProvider(BaseEmailProvider):
             )
 
             # Step 4: Convert credentials to dictionary for storage
-            credentials_dict = credentials_to_dict(credentials)
+            credentials_dict = credentials_to_dict(cast(Credentials, credentials))
 
             # Step 5: Retrieve user email from Google OAuth2 API
             email = await self._get_user_email(credentials)
@@ -389,99 +390,134 @@ class GmailProvider(BaseEmailProvider):
 
     async def process_gmail_notification(
         self, account: UserEmailAccount, history_id: str
-    ):
+    ) -> None:
         """Process Gmail notification and check for replies to our sent emails"""
         try:
-
-            # TODO: Credentiasl are refreshing again n again for no reason: "Refreshing credentials due to a 401 response. Attempt 1/2."
             logger.info(f"Processing notification for account: {account.id}")
-
-            # Step 1: Get Gmail service
+            
+            # Validate account has active watch
+            watch_account = self._get_active_watch_account(account.id)
+            if not watch_account:
+                return
+            
+            # Get Gmail service and fetch history
             service = self._get_gmail_service(account.id)
-
-            # Step 2: Get watch record to get last history_id
-            watch = (
-                self.db.query(UserEmailAccount)
-                .filter(
-                    UserEmailAccount.id == account.id,
-                    # cast(
-                    #     UserEmailAccount.notification_config["is_watch_active"],
-                    #     Boolean,
-                    # )
-                    # == True,
-                )
-                .first()
+            history_records = self._fetch_gmail_history(
+                service, watch_account, account.id
             )
-
-            if not watch:
-                logger.warning(
-                    f"No active watch found for account: {account.id}"
-                )
+            
+            if not history_records:
                 return
-
-            # Step 3: Get history since last known history_id
-            try:
-                history_response = (
-                    service.users()
-                    .history()
-                    .list(
-                        userId="me",
-                        startHistoryId=watch.notification_config[
-                            "watch_history_id"
-                        ],
-                    )
-                    .execute()
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to get history for account: {account.id}, error: {str(e)}"
-                )
-                return
-
-            # Step 4: Process new messages in history
-            history_records = history_response.get("history", [])
-
-            for record in history_records:
-                # Check for new messages (potential replies)
-                messages_added = record.get("messagesAdded", [])
-
-                for msg_record in messages_added:
-                    thread_id = msg_record["message"]["threadId"]
-
-                    # Step 5: Check if this thread_id matches any of our sent emails
-                    sent_email = (
-                        self.db.query(SentEmailTracking)
-                        .filter(
-                            SentEmailTracking.account_id == account.id,
-                            SentEmailTracking.thread_id == thread_id,
-                            SentEmailTracking.is_replied == False,
-                        )
-                        .first()
-                    )
-
-                    if sent_email:
-                        # Step 6: This is a reply to our sent email!
-                        logger.info(
-                            f"Reply detected! Thread: {thread_id}, Original email: {sent_email.id}"
-                        )
-
-                        # Mark as replied
-                        sent_email.is_replied = True
-                        sent_email.replied_at = datetime.utcnow()
-                        self.db.commit()
-
-                        logger.info(
-                            f"Marked email as replied: {sent_email.id}"
-                        )
-
-            # Step 7: Update watch history_id
-            watch.notification_config["watch_history_id"] = history_id
-            attributes.flag_modified(watch, "notification_config")
-            self.db.commit()
-
-            logger.info(f"Processed notification for account: {account.id}")
-
+            
+            # Process new messages for replies
+            reply_count = self._process_history_records(
+                history_records, account.id
+            )
+            
+            # Update watch history
+            self._update_watch_history(watch_account, history_id)
+            
+            logger.info(
+                f"Processed notification for account: {account.id}, "
+                f"found {reply_count} replies"
+            )
+            
         except Exception as e:
             logger.exception(
                 f"Failed to process notification for account: {account.id}"
             )
+
+    def _get_active_watch_account(self, account_id: str) -> Optional[UserEmailAccount]:
+        """Get account with active watch configuration"""
+        watch_account = (
+            self.db.query(UserEmailAccount)
+            .filter(
+                UserEmailAccount.id == account_id,
+            )
+            .first()
+        )
+        
+        if not watch_account:
+            logger.warning(f"No active watch found for account: {account_id}")
+            
+        return watch_account
+
+    def _fetch_gmail_history(
+        self, service, watch_account: UserEmailAccount, account_id: str
+    ) -> List[Dict[str, Any]]:
+        """Fetch Gmail history since last known history ID"""
+        try:
+            start_history_id = watch_account.notification_config.get("watch_history_id")
+            if not start_history_id:
+                logger.warning(f"No start history ID found for account: {account_id}")
+                return []
+            
+            history_response = (
+                service.users()
+                .history()
+                .list(
+                    userId="me",
+                    startHistoryId=start_history_id,
+                    labelId="INBOX",
+                    historyTypes=["messageAdded"],
+                )
+                .execute()
+            )
+            
+            return history_response.get("history", [])
+            
+        except Exception as e:
+            logger.warning(
+                f"Failed to fetch history for account: {account_id}, error: {str(e)}"
+            )
+            return []
+
+    def _process_history_records(
+        self, history_records: List[Dict[str, Any]], account_id: str
+    ) -> int:
+        """Process history records and mark replied emails"""
+        reply_count = 0
+        
+        for record in history_records:
+            messages_added = record.get("messagesAdded", [])
+            
+            for msg_record in messages_added:
+                thread_id = msg_record["message"]["threadId"]
+                
+                if self._detect_email_reply(account_id, thread_id):
+                    reply_count += 1
+                    
+        return reply_count
+
+    def _detect_email_reply(self, account_id: str, thread_id: str) -> bool:
+        """Mark sent email as replied if thread matches"""
+        sent_email = (
+            self.db.query(SentEmailTracking)
+            .filter(
+                SentEmailTracking.account_id == account_id,
+                SentEmailTracking.thread_id == thread_id,
+            )
+            .first()
+        )
+        
+        if sent_email:
+            logger.info(
+                f"Reply detected! Thread: {thread_id}, Original email: {sent_email.id}"
+            )
+            
+            sent_email.is_replied = True
+            sent_email.replied_at = datetime.utcnow()
+            self.db.commit()
+            
+            logger.info(f"Marked email as replied: {sent_email.id}")
+            return True
+            
+        return False
+
+    def _update_watch_history(
+        self, watch_account: UserEmailAccount, history_id: str
+    ) -> None:
+        """Update watch account with new history ID"""
+        watch_account.notification_config["watch_history_id"] = history_id
+        attributes.flag_modified(watch_account, "notification_config")
+        self.db.commit()

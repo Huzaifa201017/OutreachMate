@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from dotenv import dotenv_values
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-
 from src.auth.router import router as auth_router
 from src.dependencies import get_settings
 from src.email.router import router as email_router
